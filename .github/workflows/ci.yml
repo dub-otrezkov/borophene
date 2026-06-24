@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang clang-format clang-tidy cmake
+
+      - name: Check formatting
+        run: |
+          find src \( -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) \
+            | xargs clang-format --dry-run --Werror
+
+      - name: Configure
+        run: |
+          cmake -B build
+
+      - name: Run clang-tidy
+        run: |
+          find src \( -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) \
+            | xargs clang-tidy -p build
+
+      - name: Build
+        run: make -C build -j$(nproc)
+
+      - name: Run
+        run: ./build/src/borophene
