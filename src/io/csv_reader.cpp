@@ -315,7 +315,7 @@ class CsvRecordParser {
   std::string field_;
   CsvState state_ = CsvState::kFieldStart;
   std::size_t record_bytes_ = 0;
-  // Distinguishes clean EOF from a final record without a line ending.
+  // True after reading any byte, so EOF can finish a record without a line ending.
   bool saw_input_ = false;
 };
 
