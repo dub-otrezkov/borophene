@@ -17,10 +17,10 @@
 #include "borophene/data/logical_type.hpp"
 #include "borophene/data/schema.hpp"
 #include "borophene/execution/pipeline.hpp"
+#include "borophene/execution/workers/columnar_reader.hpp"
+#include "borophene/execution/workers/columnar_writer.hpp"
 #include "borophene/io/file.hpp"
 #include "borophene/storage/columnar_format.hpp"
-#include "borophene/storage/columnar_reader.hpp"
-#include "borophene/storage/columnar_writer.hpp"
 
 namespace {
 
@@ -38,11 +38,11 @@ using borophene::ui32;
 using borophene::ui64;
 using borophene::ui8;
 using borophene::ValidityMask;
+using borophene::execution::ColumnarReader;
+using borophene::execution::ColumnarWriter;
 using borophene::io::MemoryStream;
 using borophene::io::OutputStream;
 using borophene::io::RandomAccessFile;
-using borophene::storage::ColumnarReader;
-using borophene::storage::ColumnarWriter;
 using borophene::storage::ColumnCodecOptions;
 using borophene::storage::ColumnCompression;
 using borophene::storage::ColumnDecodeOptions;

@@ -12,12 +12,13 @@
 #include "borophene/storage/column_codec.hpp"
 #include "borophene/storage/columnar_format.hpp"
 
-namespace borophene::storage {
+namespace borophene::execution {
 
-class ColumnarWriter final : public execution::ChunkSink {
+class ColumnarWriter final : public ChunkSink {
  public:
-  static Result<ColumnarWriter> Create(std::unique_ptr<io::OutputStream> output,
-                                       std::shared_ptr<const ColumnEncoder> encoder = CreateV1ColumnEncoder());
+  static Result<ColumnarWriter> Create(
+      std::unique_ptr<io::OutputStream> output,
+      std::shared_ptr<const storage::ColumnEncoder> encoder = storage::CreateV1ColumnEncoder());
 
   ColumnarWriter(const ColumnarWriter&) = delete;
   ColumnarWriter& operator=(const ColumnarWriter&) = delete;
@@ -37,15 +38,16 @@ class ColumnarWriter final : public execution::ChunkSink {
     kFailed,
   };
 
-  ColumnarWriter(std::unique_ptr<io::OutputStream> output, std::shared_ptr<const ColumnEncoder> encoder) noexcept;
+  ColumnarWriter(std::unique_ptr<io::OutputStream> output,
+                 std::shared_ptr<const storage::ColumnEncoder> encoder) noexcept;
 
   std::unique_ptr<io::OutputStream> output_;
-  std::shared_ptr<const ColumnEncoder> encoder_;
+  std::shared_ptr<const storage::ColumnEncoder> encoder_;
   std::optional<Schema> schema_;
-  std::vector<RowGroupMetadata> row_groups_;
+  std::vector<storage::RowGroupMetadata> row_groups_;
   Index total_rows_ = 0;
   ui64 metadata_size_ = 0;
   State state_ = State::kCreated;
 };
 
-}  // namespace borophene::storage
+}  // namespace borophene::execution

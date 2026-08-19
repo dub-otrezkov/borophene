@@ -7,7 +7,7 @@ endfunction()
 
 borophene_add_test(borophene_common_data_test common_data_test.cpp borophene::data)
 borophene_add_test(borophene_csv_io_test csv_io_test.cpp borophene::io)
-borophene_add_test(borophene_columnar_io_test columnar_io_test.cpp borophene::storage)
+borophene_add_test(borophene_columnar_io_test columnar_io_test.cpp borophene::execution)
 borophene_add_test(borophene_execution_test execution_test.cpp borophene::execution)
 
 file(

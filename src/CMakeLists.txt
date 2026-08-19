@@ -20,19 +20,22 @@ borophene_add_library(
 target_link_libraries(borophene_io PUBLIC borophene::common)
 add_library(borophene::io ALIAS borophene_io)
 
-borophene_add_library(borophene_execution execution/pipeline.cpp)
-target_link_libraries(borophene_execution PUBLIC borophene::data)
-add_library(borophene::execution ALIAS borophene_execution)
-
 borophene_add_library(
   borophene_storage
   storage/column_codec.cpp
   storage/columnar_format.cpp
-  storage/columnar_reader.cpp
-  storage/columnar_writer.cpp
 )
-target_link_libraries(borophene_storage PUBLIC borophene::data borophene::execution borophene::io)
+target_link_libraries(borophene_storage PUBLIC borophene::data)
 add_library(borophene::storage ALIAS borophene_storage)
+
+borophene_add_library(
+  borophene_execution
+  execution/pipeline.cpp
+  execution/workers/columnar_reader.cpp
+  execution/workers/columnar_writer.cpp
+)
+target_link_libraries(borophene_execution PUBLIC borophene::data borophene::io borophene::storage)
+add_library(borophene::execution ALIAS borophene_execution)
 
 add_library(borophene INTERFACE)
 target_link_libraries(

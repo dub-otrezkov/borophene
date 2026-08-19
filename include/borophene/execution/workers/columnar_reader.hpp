@@ -12,12 +12,13 @@
 #include "borophene/storage/column_codec.hpp"
 #include "borophene/storage/columnar_format.hpp"
 
-namespace borophene::storage {
+namespace borophene::execution {
 
-class ColumnarReader final : public execution::ChunkSource {
+class ColumnarReader final : public ChunkSource {
  public:
-  static Result<ColumnarReader> Open(std::unique_ptr<io::RandomAccessFile> file,
-                                     std::shared_ptr<const ColumnFactory> column_factory = CreateV1ColumnFactory());
+  static Result<ColumnarReader> Open(
+      std::unique_ptr<io::RandomAccessFile> file,
+      std::shared_ptr<const storage::ColumnFactory> column_factory = storage::CreateV1ColumnFactory());
 
   ColumnarReader(const ColumnarReader&) = delete;
   ColumnarReader& operator=(const ColumnarReader&) = delete;
@@ -33,15 +34,16 @@ class ColumnarReader final : public execution::ChunkSource {
   void Reset() noexcept;
 
  private:
-  ColumnarReader(std::unique_ptr<io::RandomAccessFile> file, Schema schema, std::vector<RowGroupMetadata> row_groups,
-                 Index total_rows, std::shared_ptr<const ColumnFactory> column_factory) noexcept;
+  ColumnarReader(std::unique_ptr<io::RandomAccessFile> file, Schema schema,
+                 std::vector<storage::RowGroupMetadata> row_groups, Index total_rows,
+                 std::shared_ptr<const storage::ColumnFactory> column_factory) noexcept;
 
   std::unique_ptr<io::RandomAccessFile> file_;
   Schema schema_;
-  std::vector<RowGroupMetadata> row_groups_;
+  std::vector<storage::RowGroupMetadata> row_groups_;
   Index total_rows_;
   Index next_row_group_ = 0;
-  std::shared_ptr<const ColumnFactory> column_factory_;
+  std::shared_ptr<const storage::ColumnFactory> column_factory_;
 };
 
-}  // namespace borophene::storage
+}  // namespace borophene::execution

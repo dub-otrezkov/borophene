@@ -14,16 +14,19 @@ The reference repositories do not declare a license. Their source is therefore n
 ## Dependency graph
 
 ```text
-common <--- data <--- execution
-   ^         ^           ^
-   |         |           |
-   +--- io <-+-----------+--- storage
+data ------> common
+io --------> common
+storage ---> data
+execution -> data
+execution -> io
+execution -> storage
 ```
 
 `common` contains value-level infrastructure. `data` owns typed vectors and validates table invariants. `io` contains
-byte-stream contracts, memory/local adapters, and schema-independent CSV logic. `execution` only knows the data model
-and coordinates sources and sinks. `storage` depends on all three and implements the execution source/sink contracts
-for the columnar format.
+byte-stream contracts, memory/local adapters, and schema-independent CSV logic. `storage` owns the columnar format
+metadata and schema-aware column codec, depending only on `data`. `execution` coordinates sources and sinks; its
+columnar workers compose the storage codec with injected I/O contracts. Dependencies point in one direction and the
+storage layer has no dependency back to execution.
 
 Each module is a CMake target with public dependency propagation. The `borophene::borophene` interface target is the
 consumer entry point.
@@ -47,22 +50,22 @@ input.
 Future operators should implement `ChunkSource` and uniquely own their upstream source. This keeps the execution graph
 acyclic and avoids shared mutable column state.
 
-## Storage and CSV
+## Execution workers, storage, and CSV
 
 The CSV parser is schema-agnostic and depends only on sequential `InputStream`/`OutputStream` contracts. Local files and
 the reusable `MemoryStream` implement those contracts without leaking a destination type into CSV workers.
 
-Columnar I/O is a composition of small stages. A reader obtains payload bytes through a random-access input and passes
-them to the column codec; the codec alone validates and constructs a `ColumnVector`. In the opposite direction, the
-codec serializes a vector into bytes and metadata before the writer sends those bytes to an injected output stream.
-Readers and writers orchestrate lifecycle and row groups, while codecs do not know which file or memory backend is in
-use. This boundary is also where a future compression implementation is selected.
+Columnar I/O is a composition of small stages. The reader execution worker obtains payload bytes through a
+random-access input and passes them to the storage codec; the codec alone validates and constructs a `ColumnVector`.
+In the opposite direction, the codec serializes a vector into bytes and metadata before the writer execution worker
+sends those bytes to an injected output stream. Workers orchestrate lifecycle and row groups, while codecs do not know
+which file or memory backend is in use. This boundary is also where a future compression implementation is selected.
 
-The storage layer uses positional reads so projected column chunks can later be read concurrently. Metadata lives at
-the end of the file, allowing the writer to emit row groups in one pass without seeking.
+The reader worker uses positional reads so projected column chunks can later be read concurrently. Metadata lives at
+the end of the file, allowing the writer worker to emit row groups in one pass without seeking.
 
 The local file adapter currently targets POSIX systems. Its abstract random-access and sequential stream contracts keep
-platform-specific file handling outside CSV, format readers, format writers, and codecs.
+platform-specific file handling outside CSV, columnar execution workers, and codecs.
 
 All external bytes are validated before allocation or indexing. The v1 format uses fixed-width little-endian fields;
 it never serializes pointers, `size_t`, C++ object layouts, or platform-specific numeric types.

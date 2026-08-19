@@ -1,4 +1,4 @@
-#include "borophene/storage/columnar_reader.hpp"
+#include "borophene/execution/workers/columnar_reader.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -8,7 +8,28 @@
 #include <utility>
 #include <vector>
 
-namespace borophene::storage {
+namespace borophene::execution {
+
+using storage::ColumnChunkMetadata;
+using storage::ColumnCompression;
+using storage::ColumnDecodeOptions;
+using storage::ColumnEncoding;
+using storage::ColumnFactory;
+using storage::kColumnarFormatFlags;
+using storage::kColumnarFormatMajor;
+using storage::kColumnarFormatMinor;
+using storage::kColumnarHeaderMagic;
+using storage::kColumnarHeaderSize;
+using storage::kColumnarMaxChunkSize;
+using storage::kColumnarMaxFieldCount;
+using storage::kColumnarMaxFieldNameSize;
+using storage::kColumnarMaxMetadataSize;
+using storage::kColumnarMaxRowGroupCount;
+using storage::kColumnarTrailerMagic;
+using storage::kColumnarTrailerSize;
+using storage::RowGroupMetadata;
+using storage::ValidityBitmapSize;
+
 namespace {
 
 using Buffer = std::vector<Byte>;
@@ -458,4 +479,4 @@ void ColumnarReader::Reset() noexcept {
   next_row_group_ = 0;
 }
 
-}  // namespace borophene::storage
+}  // namespace borophene::execution

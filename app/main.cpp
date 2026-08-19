@@ -3,8 +3,8 @@
 #include <utility>
 
 #include "borophene/common/error.hpp"
+#include "borophene/execution/workers/columnar_reader.hpp"
 #include "borophene/io/file.hpp"
-#include "borophene/storage/columnar_reader.hpp"
 
 namespace {
 
@@ -39,7 +39,7 @@ int Inspect(std::string_view path) {
     return PrintError(input.error());
   }
 
-  auto reader = borophene::storage::ColumnarReader::Open(std::move(*input));
+  auto reader = borophene::execution::ColumnarReader::Open(std::move(*input));
   if (!reader) {
     return PrintError(reader.error());
   }

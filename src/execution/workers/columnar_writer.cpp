@@ -1,4 +1,4 @@
-#include "borophene/storage/columnar_writer.hpp"
+#include "borophene/execution/workers/columnar_writer.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -8,7 +8,28 @@
 #include <utility>
 #include <vector>
 
-namespace borophene::storage {
+namespace borophene::execution {
+
+using storage::ColumnChunkMetadata;
+using storage::ColumnCompression;
+using storage::ColumnEncoder;
+using storage::ColumnEncoding;
+using storage::kColumnarFormatFlags;
+using storage::kColumnarFormatMajor;
+using storage::kColumnarFormatMinor;
+using storage::kColumnarHeaderMagic;
+using storage::kColumnarHeaderSize;
+using storage::kColumnarMaxChunkSize;
+using storage::kColumnarMaxFieldCount;
+using storage::kColumnarMaxFieldNameSize;
+using storage::kColumnarMaxMetadataSize;
+using storage::kColumnarMaxRowGroupCount;
+using storage::kColumnarTrailerMagic;
+using storage::kColumnarTrailerSize;
+using storage::RowGroupMetadata;
+using storage::SerializedColumn;
+using storage::ValidityBitmapSize;
+
 namespace {
 
 using Buffer = std::vector<Byte>;
@@ -391,4 +412,4 @@ Result<void> ColumnarWriter::Finish() {
   return {};
 }
 
-}  // namespace borophene::storage
+}  // namespace borophene::execution

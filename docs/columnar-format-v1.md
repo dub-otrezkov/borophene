@@ -33,10 +33,10 @@ field. A descriptor contains `u64 offset`, `u64 stored_size`, `u64 decoded_size`
 `u8 compression`, and `u16 flags`. Version 1 supports plain encoding, assigns compression identifiers `0` to none
 and `1` to reserved Zstandard, and requires zero flags. The built-in codec implements only identifier `0`.
 
-The storage API keeps payload encoding and decoding behind a column-codec contract. Readers and writers only move the
-resulting bytes and metadata through injected I/O interfaces. Compression is therefore a codec concern; the built-in
-v1 codec currently rejects every compression option except `kNone`, while an injected pair may implement reserved
-`kZstd` payloads.
+The storage API keeps payload encoding and decoding behind a column-codec contract. Execution reader and writer
+workers only move the resulting bytes and metadata through injected I/O interfaces. Compression is therefore a codec
+concern; the built-in v1 codec currently rejects every compression option except `kNone`, while an injected pair may
+implement reserved `kZstd` payloads.
 
 Row groups must be non-empty, contiguous, and sum to `total_rows`. Every payload range must lie between the header and
 metadata and must not overflow.
