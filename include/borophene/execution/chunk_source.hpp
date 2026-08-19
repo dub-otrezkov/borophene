@@ -18,8 +18,8 @@ class ChunkSource {
   ChunkSource(ChunkSource&&) noexcept = default;
   ChunkSource& operator=(ChunkSource&&) noexcept = default;
 
-  [[nodiscard]] virtual const Schema& GetSchema() const noexcept = 0;
-  [[nodiscard]] virtual Result<std::optional<DataChunk>> Next() = 0;
+  virtual const Schema& GetSchema() const noexcept = 0;
+  virtual Result<std::optional<DataChunk>> Next() = 0;
 };
 
 }  // namespace borophene::execution

@@ -1,5 +1,4 @@
-#ifndef BOROPHENE_DATA_SCHEMA_HPP_
-#define BOROPHENE_DATA_SCHEMA_HPP_
+#pragma once
 
 #include <string>
 #include <string_view>
@@ -22,21 +21,26 @@ struct Field {
 
 class Schema {
  public:
-  [[nodiscard]] static Result<Schema> Create(std::vector<Field> fields);
+  static Result<Schema> Create(std::vector<Field> fields);
 
-  [[nodiscard]] const std::vector<Field>& Fields() const noexcept { return fields_; }
-  [[nodiscard]] Index Size() const noexcept { return fields_.size(); }
-  [[nodiscard]] const Field& operator[](Index index) const;
-  [[nodiscard]] Result<Index> Find(std::string_view name) const;
+  const std::vector<Field>& Fields() const noexcept {
+    return fields_;
+  }
+
+  Index Size() const noexcept {
+    return fields_.size();
+  }
+
+  const Field& operator[](Index index) const;
+  Result<Index> Find(std::string_view name) const;
 
   bool operator==(const Schema&) const = default;
 
  private:
-  explicit Schema(std::vector<Field> fields) : fields_(std::move(fields)) {}
+  explicit Schema(std::vector<Field> fields) : fields_(std::move(fields)) {
+  }
 
   std::vector<Field> fields_;
 };
 
 }  // namespace borophene
-
-#endif  // BOROPHENE_DATA_SCHEMA_HPP_

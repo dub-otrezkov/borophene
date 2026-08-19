@@ -14,11 +14,11 @@ namespace {
 
 using Buffer = std::vector<std::byte>;
 
-[[nodiscard]] Error InvalidFormat(std::string message) {
+Error InvalidFormat(std::string message) {
   return {ErrorCode::kInvalidFormat, std::move(message)};
 }
 
-[[nodiscard]] bool CheckedAdd(std::uint64_t left, std::uint64_t right, std::uint64_t& result) noexcept {
+bool CheckedAdd(std::uint64_t left, std::uint64_t right, std::uint64_t& result) noexcept {
   if (right > std::numeric_limits<std::uint64_t>::max() - left) {
     return false;
   }
@@ -28,16 +28,17 @@ using Buffer = std::vector<std::byte>;
 
 class Cursor {
  public:
-  explicit Cursor(std::span<const std::byte> bytes) : bytes_(bytes) {}
+  explicit Cursor(std::span<const std::byte> bytes) : bytes_(bytes) {
+  }
 
-  [[nodiscard]] Result<std::uint8_t> ReadU8() {
+  Result<std::uint8_t> ReadU8() {
     if (position_ == bytes_.size()) {
       return std::unexpected(InvalidFormat("truncated columnar metadata"));
     }
     return std::to_integer<std::uint8_t>(bytes_[position_++]);
   }
 
-  [[nodiscard]] Result<std::uint16_t> ReadU16() {
+  Result<std::uint16_t> ReadU16() {
     auto bytes = ReadBytes(sizeof(std::uint16_t));
     if (!bytes) {
       return std::unexpected(std::move(bytes.error()));
@@ -46,7 +47,7 @@ class Cursor {
                                       (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>((*bytes)[1])) << 8U));
   }
 
-  [[nodiscard]] Result<std::uint32_t> ReadU32() {
+  Result<std::uint32_t> ReadU32() {
     auto bytes = ReadBytes(sizeof(std::uint32_t));
     if (!bytes) {
       return std::unexpected(std::move(bytes.error()));
@@ -58,7 +59,7 @@ class Cursor {
     return value;
   }
 
-  [[nodiscard]] Result<std::uint64_t> ReadU64() {
+  Result<std::uint64_t> ReadU64() {
     auto bytes = ReadBytes(sizeof(std::uint64_t));
     if (!bytes) {
       return std::unexpected(std::move(bytes.error()));
@@ -70,7 +71,7 @@ class Cursor {
     return value;
   }
 
-  [[nodiscard]] Result<std::span<const std::byte>> ReadBytes(std::uint64_t size) {
+  Result<std::span<const std::byte>> ReadBytes(std::uint64_t size) {
     if (size > bytes_.size() - position_) {
       return std::unexpected(InvalidFormat("truncated columnar metadata"));
     }
@@ -79,15 +80,19 @@ class Cursor {
     return output;
   }
 
-  [[nodiscard]] bool Empty() const noexcept { return position_ == bytes_.size(); }
-  [[nodiscard]] std::size_t Remaining() const noexcept { return bytes_.size() - position_; }
+  bool Empty() const noexcept {
+    return position_ == bytes_.size();
+  }
+  std::size_t Remaining() const noexcept {
+    return bytes_.size() - position_;
+  }
 
  private:
   std::span<const std::byte> bytes_;
   std::size_t position_ = 0;
 };
 
-[[nodiscard]] bool MatchesMagic(std::span<const std::byte> bytes, const std::array<char, 8>& magic) {
+bool MatchesMagic(std::span<const std::byte> bytes, const std::array<char, 8>& magic) {
   if (bytes.size() != magic.size()) {
     return false;
   }
@@ -99,7 +104,7 @@ class Cursor {
   return true;
 }
 
-[[nodiscard]] Result<Buffer> ReadRegion(const io::RandomAccessFile& file, std::uint64_t offset, std::uint64_t size) {
+Result<Buffer> ReadRegion(const io::RandomAccessFile& file, std::uint64_t offset, std::uint64_t size) {
   if (size > std::numeric_limits<std::size_t>::max()) {
     return std::unexpected(InvalidFormat("columnar region is too large"));
   }
@@ -117,8 +122,8 @@ struct Preamble {
   std::uint32_t flags;
 };
 
-[[nodiscard]] Result<Preamble> ParsePreamble(std::span<const std::byte> bytes, const std::array<char, 8>& magic,
-                                             std::string_view location) {
+Result<Preamble> ParsePreamble(std::span<const std::byte> bytes, const std::array<char, 8>& magic,
+                               std::string_view location) {
   Cursor cursor(bytes);
   auto encoded_magic = cursor.ReadBytes(magic.size());
   if (!encoded_magic || !MatchesMagic(*encoded_magic, magic)) {
@@ -147,7 +152,7 @@ struct ParsedMetadata {
   Index total_rows;
 };
 
-[[nodiscard]] Result<ParsedMetadata> ParseMetadata(std::span<const std::byte> bytes, std::uint64_t metadata_offset) {
+Result<ParsedMetadata> ParseMetadata(std::span<const std::byte> bytes, std::uint64_t metadata_offset) {
   Cursor cursor(bytes);
   auto field_count = cursor.ReadU32();
   auto group_count = cursor.ReadU32();
@@ -289,7 +294,7 @@ struct ParsedMetadata {
   return ParsedMetadata{.schema = std::move(*schema), .row_groups = std::move(row_groups), .total_rows = *total_rows};
 }
 
-[[nodiscard]] std::uint32_t DecodeU32(std::span<const std::byte> bytes, std::size_t offset) {
+std::uint32_t DecodeU32(std::span<const std::byte> bytes, std::size_t offset) {
   std::uint32_t value = 0;
   for (unsigned int index = 0; index < 4U; ++index) {
     value |= static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(bytes[offset + index])) << (index * 8U);
@@ -297,8 +302,8 @@ struct ParsedMetadata {
   return value;
 }
 
-[[nodiscard]] Result<ValidityMask> DecodeValidity(std::span<const std::byte> payload, Index row_count,
-                                                  std::uint32_t expected_null_count) {
+Result<ValidityMask> DecodeValidity(std::span<const std::byte> payload, Index row_count,
+                                    std::uint32_t expected_null_count) {
   ValidityMask validity(row_count);
   if (expected_null_count == 0) {
     return validity;
@@ -328,7 +333,8 @@ struct ParsedMetadata {
 
 ColumnarReader::ColumnarReader(std::unique_ptr<io::RandomAccessFile> file, Schema schema,
                                std::vector<RowGroupMetadata> row_groups, Index total_rows) noexcept
-    : file_(std::move(file)), schema_(std::move(schema)), row_groups_(std::move(row_groups)), total_rows_(total_rows) {}
+    : file_(std::move(file)), schema_(std::move(schema)), row_groups_(std::move(row_groups)), total_rows_(total_rows) {
+}
 
 Result<ColumnarReader> ColumnarReader::Open(std::unique_ptr<io::RandomAccessFile> file) {
   if (file == nullptr) {

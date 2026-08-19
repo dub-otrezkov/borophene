@@ -33,7 +33,9 @@ int PrintError(const borophene::Error& error) {
 
 int Inspect(std::string_view path) {
   auto reader = borophene::storage::ColumnarReader::Open(path);
-  if (!reader) return PrintError(reader.error());
+  if (!reader) {
+    return PrintError(reader.error());
+  }
 
   std::cout << "rows: " << reader->RowCount() << '\n';
   std::cout << "row groups: " << reader->RowGroupCount() << '\n';
@@ -42,7 +44,9 @@ int Inspect(std::string_view path) {
     std::cout << "  ";
     PrintEscapedBytes(std::cout, field.name);
     std::cout << ": " << borophene::ToString(field.type);
-    if (field.nullable) std::cout << " nullable";
+    if (field.nullable) {
+      std::cout << " nullable";
+    }
     std::cout << '\n';
   }
   return 0;
@@ -59,7 +63,9 @@ int main(int argc, char** argv) {
     std::cout << BOROPHENE_VERSION << '\n';
     return 0;
   }
-  if (argc == 3 && std::string_view(argv[1]) == "inspect") return Inspect(argv[2]);
+  if (argc == 3 && std::string_view(argv[1]) == "inspect") {
+    return Inspect(argv[2]);
+  }
 
   std::cerr << "unknown or incomplete command: " << argv[1] << '\n';
   PrintUsage(std::cerr);

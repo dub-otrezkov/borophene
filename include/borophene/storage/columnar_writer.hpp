@@ -1,5 +1,4 @@
-#ifndef BOROPHENE_STORAGE_COLUMNAR_WRITER_HPP_
-#define BOROPHENE_STORAGE_COLUMNAR_WRITER_HPP_
+#pragma once
 
 #include <filesystem>
 #include <memory>
@@ -17,18 +16,18 @@ namespace borophene::storage {
 
 class ColumnarWriter final : public execution::ChunkSink {
  public:
-  [[nodiscard]] static Result<ColumnarWriter> Create(std::unique_ptr<io::OutputFile> file);
-  [[nodiscard]] static Result<ColumnarWriter> Create(const std::filesystem::path& path);
+  static Result<ColumnarWriter> Create(std::unique_ptr<io::OutputFile> file);
+  static Result<ColumnarWriter> Create(const std::filesystem::path& path);
 
   ColumnarWriter(const ColumnarWriter&) = delete;
   ColumnarWriter& operator=(const ColumnarWriter&) = delete;
   ColumnarWriter(ColumnarWriter&&) noexcept = default;
   ColumnarWriter& operator=(ColumnarWriter&&) noexcept = default;
 
-  [[nodiscard]] Result<void> Begin(const Schema& schema) override;
-  [[nodiscard]] Result<void> Write(const DataChunk& chunk) override;
-  [[nodiscard]] Result<void> WriteRowGroup(const DataChunk& chunk);
-  [[nodiscard]] Result<void> Finish() override;
+  Result<void> Begin(const Schema& schema) override;
+  Result<void> Write(const DataChunk& chunk) override;
+  Result<void> WriteRowGroup(const DataChunk& chunk);
+  Result<void> Finish() override;
 
  private:
   enum class State {
@@ -48,5 +47,3 @@ class ColumnarWriter final : public execution::ChunkSink {
 };
 
 }  // namespace borophene::storage
-
-#endif  // BOROPHENE_STORAGE_COLUMNAR_WRITER_HPP_

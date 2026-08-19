@@ -4,7 +4,8 @@
 
 namespace borophene {
 
-Error::Error(ErrorCode code, std::string message) : code_(code), message_(std::move(message)) {}
+Error::Error(ErrorCode code, std::string message) : code_(code), message_(std::move(message)) {
+}
 
 std::string_view ToString(ErrorCode code) noexcept {
   switch (code) {

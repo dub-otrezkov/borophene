@@ -6,6 +6,6 @@
 
 namespace borophene::execution {
 
-[[nodiscard]] Result<void> RunPipeline(ChunkSource& source, ChunkSink& sink);
+Result<void> RunPipeline(ChunkSource& source, ChunkSink& sink);
 
 }  // namespace borophene::execution

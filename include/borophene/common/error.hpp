@@ -1,5 +1,4 @@
-#ifndef BOROPHENE_COMMON_ERROR_HPP_
-#define BOROPHENE_COMMON_ERROR_HPP_
+#pragma once
 
 #include <cstdint>
 #include <string>
@@ -22,8 +21,13 @@ class Error {
  public:
   Error(ErrorCode code, std::string message);
 
-  [[nodiscard]] ErrorCode Code() const noexcept { return code_; }
-  [[nodiscard]] const std::string& Message() const noexcept { return message_; }
+  ErrorCode Code() const noexcept {
+    return code_;
+  }
+
+  const std::string& Message() const noexcept {
+    return message_;
+  }
 
   bool operator==(const Error&) const = default;
 
@@ -32,8 +36,6 @@ class Error {
   std::string message_;
 };
 
-[[nodiscard]] std::string_view ToString(ErrorCode code) noexcept;
+std::string_view ToString(ErrorCode code) noexcept;
 
 }  // namespace borophene
-
-#endif  // BOROPHENE_COMMON_ERROR_HPP_

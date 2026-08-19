@@ -15,11 +15,11 @@ namespace {
 
 using Buffer = std::vector<std::byte>;
 
-[[nodiscard]] Error InvalidState(std::string message) {
+Error InvalidState(std::string message) {
   return {ErrorCode::kInvalidState, std::move(message)};
 }
 
-[[nodiscard]] Error InvalidArgument(std::string message) {
+Error InvalidArgument(std::string message) {
   return {ErrorCode::kInvalidArgument, std::move(message)};
 }
 
@@ -50,7 +50,7 @@ void AppendMagic(Buffer& output, const std::array<char, 8>& magic) {
   }
 }
 
-[[nodiscard]] Result<Buffer> EncodeColumn(const ColumnVector& column, const Field& field) {
+Result<Buffer> EncodeColumn(const ColumnVector& column, const Field& field) {
   if (column.Type() != field.type) {
     return std::unexpected(Error(ErrorCode::kSchemaMismatch, "row-group column type does not match the writer schema"));
   }
@@ -142,8 +142,7 @@ void AppendMagic(Buffer& output, const std::array<char, 8>& magic) {
   return output;
 }
 
-[[nodiscard]] Result<Buffer> EncodeMetadata(const Schema& schema, const std::vector<RowGroupMetadata>& row_groups,
-                                            Index total_rows) {
+Result<Buffer> EncodeMetadata(const Schema& schema, const std::vector<RowGroupMetadata>& row_groups, Index total_rows) {
   if (schema.Size() > std::numeric_limits<std::uint32_t>::max() ||
       row_groups.size() > std::numeric_limits<std::uint32_t>::max()) {
     return std::unexpected(InvalidArgument("metadata count exceeds format limit"));
@@ -189,7 +188,8 @@ void AppendMagic(Buffer& output, const std::array<char, 8>& magic) {
 
 }  // namespace
 
-ColumnarWriter::ColumnarWriter(std::unique_ptr<io::OutputFile> file) noexcept : file_(std::move(file)) {}
+ColumnarWriter::ColumnarWriter(std::unique_ptr<io::OutputFile> file) noexcept : file_(std::move(file)) {
+}
 
 Result<ColumnarWriter> ColumnarWriter::Create(std::unique_ptr<io::OutputFile> file) {
   if (file == nullptr) {

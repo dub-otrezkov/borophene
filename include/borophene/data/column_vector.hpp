@@ -1,5 +1,4 @@
-#ifndef BOROPHENE_DATA_COLUMN_VECTOR_HPP_
-#define BOROPHENE_DATA_COLUMN_VECTOR_HPP_
+#pragma once
 
 #include <cstdint>
 #include <optional>
@@ -18,11 +17,16 @@ class ValidityMask {
  public:
   explicit ValidityMask(Index size);
 
-  [[nodiscard]] Index Size() const noexcept { return size_; }
+  Index Size() const noexcept {
+    return size_;
+  }
+
   void SetValid(Index index, bool valid = true);
-  [[nodiscard]] bool IsValid(Index index) const;
-  [[nodiscard]] Index NullCount() const noexcept;
-  [[nodiscard]] const std::vector<std::uint64_t>& Words() const noexcept { return words_; }
+  bool IsValid(Index index) const;
+  Index NullCount() const noexcept;
+  const std::vector<std::uint64_t>& Words() const noexcept {
+    return words_;
+  }
 
   bool operator==(const ValidityMask&) const = default;
 
@@ -35,26 +39,32 @@ class ValidityMask {
 
 class ColumnVector {
  public:
-  [[nodiscard]] static Result<ColumnVector> CreateInt32(std::vector<std::int32_t> values,
-                                                        std::optional<ValidityMask> validity = std::nullopt);
-  [[nodiscard]] static Result<ColumnVector> CreateString(std::vector<std::string> values,
-                                                         std::optional<ValidityMask> validity = std::nullopt);
+  static Result<ColumnVector> CreateInt32(std::vector<std::int32_t> values,
+                                          std::optional<ValidityMask> validity = std::nullopt);
+  static Result<ColumnVector> CreateString(std::vector<std::string> values,
+                                           std::optional<ValidityMask> validity = std::nullopt);
 
-  [[nodiscard]] LogicalType Type() const noexcept { return type_; }
-  [[nodiscard]] Index Size() const noexcept;
-  [[nodiscard]] const ValidityMask& Validity() const noexcept { return validity_; }
-  [[nodiscard]] const std::vector<std::int32_t>& Int32Values() const;
-  [[nodiscard]] const std::vector<std::string>& StringValues() const;
+  LogicalType Type() const noexcept {
+    return type_;
+  }
+
+  Index Size() const noexcept;
+  const ValidityMask& Validity() const noexcept {
+    return validity_;
+  }
+
+  const std::vector<std::int32_t>& Int32Values() const;
+  const std::vector<std::string>& StringValues() const;
 
  private:
   using Values = std::variant<std::vector<std::int32_t>, std::vector<std::string>>;
 
   ColumnVector(LogicalType type, Values values, ValidityMask validity)
-      : type_(type), values_(std::move(values)), validity_(std::move(validity)) {}
+      : type_(type), values_(std::move(values)), validity_(std::move(validity)) {
+  }
 
   template <typename T>
-  [[nodiscard]] static Result<ColumnVector> Create(LogicalType type, std::vector<T> values,
-                                                   std::optional<ValidityMask> validity);
+  static Result<ColumnVector> Create(LogicalType type, std::vector<T> values, std::optional<ValidityMask> validity);
 
   LogicalType type_;
   Values values_;
@@ -62,5 +72,3 @@ class ColumnVector {
 };
 
 }  // namespace borophene
-
-#endif  // BOROPHENE_DATA_COLUMN_VECTOR_HPP_

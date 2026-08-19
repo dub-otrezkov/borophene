@@ -1,5 +1,4 @@
-#ifndef BOROPHENE_IO_CSV_WRITER_HPP_
-#define BOROPHENE_IO_CSV_WRITER_HPP_
+#pragma once
 
 #include <ostream>
 #include <span>
@@ -19,7 +18,7 @@ class CsvWriter {
   CsvWriter(CsvWriter&&) = delete;
   CsvWriter& operator=(CsvWriter&&) = delete;
 
-  [[nodiscard]] Result<void> WriteRow(std::span<const std::string_view> fields);
+  Result<void> WriteRow(std::span<const std::string_view> fields);
 
  private:
   std::ostream& output_;
@@ -27,5 +26,3 @@ class CsvWriter {
 };
 
 }  // namespace borophene::io
-
-#endif  // BOROPHENE_IO_CSV_WRITER_HPP_

@@ -29,7 +29,9 @@ using borophene::Schema;
 int failures = 0;
 
 void Check(bool condition, std::string_view message) {
-  if (condition) return;
+  if (condition) {
+    return;
+  }
   std::cerr << "FAILED: " << message << '\n';
   ++failures;
 }
@@ -46,20 +48,27 @@ DataChunk MakeChunk(std::vector<std::int32_t> values) {
 class FakeSource final : public borophene::execution::ChunkSource {
  public:
   explicit FakeSource(std::vector<DataChunk> chunks, bool fail = false)
-      : schema_(MakeSchema()), chunks_(std::move(chunks)), fail_(fail) {}
+      : schema_(MakeSchema()), chunks_(std::move(chunks)), fail_(fail) {
+  }
 
-  [[nodiscard]] const Schema& GetSchema() const noexcept override { return schema_; }
+  const Schema& GetSchema() const noexcept override {
+    return schema_;
+  }
 
-  [[nodiscard]] Result<std::optional<DataChunk>> Next() override {
+  Result<std::optional<DataChunk>> Next() override {
     ++calls_;
     if (fail_) {
       return Failure<std::optional<DataChunk>>(ErrorCode::kIo, "source failed");
     }
-    if (next_ == chunks_.size()) return std::optional<DataChunk>{};
+    if (next_ == chunks_.size()) {
+      return std::optional<DataChunk>{};
+    }
     return std::optional<DataChunk>(std::move(chunks_[next_++]));
   }
 
-  [[nodiscard]] std::size_t Calls() const noexcept { return calls_; }
+  std::size_t Calls() const noexcept {
+    return calls_;
+  }
 
  private:
   Schema schema_;
@@ -71,35 +80,57 @@ class FakeSource final : public borophene::execution::ChunkSource {
 
 class FakeSink final : public borophene::execution::ChunkSink {
  public:
-  enum class FailurePoint { kNone, kBegin, kWrite, kFinish };
+  enum class FailurePoint {
+    kNone,
+    kBegin,
+    kWrite,
+    kFinish
+  };
 
-  explicit FakeSink(FailurePoint failure = FailurePoint::kNone) : failure_(failure) {}
+  explicit FakeSink(FailurePoint failure = FailurePoint::kNone) : failure_(failure) {
+  }
 
-  [[nodiscard]] Result<void> Begin(const Schema& schema) override {
+  Result<void> Begin(const Schema& schema) override {
     began_ = true;
     schema_matches_ = schema == MakeSchema();
-    if (failure_ == FailurePoint::kBegin) return Failure<void>(ErrorCode::kIo, "begin failed");
+    if (failure_ == FailurePoint::kBegin) {
+      return Failure<void>(ErrorCode::kIo, "begin failed");
+    }
     return {};
   }
 
-  [[nodiscard]] Result<void> Write(const DataChunk& chunk) override {
-    if (failure_ == FailurePoint::kWrite) return Failure<void>(ErrorCode::kIo, "write failed");
+  Result<void> Write(const DataChunk& chunk) override {
+    if (failure_ == FailurePoint::kWrite) {
+      return Failure<void>(ErrorCode::kIo, "write failed");
+    }
     rows_ += chunk.RowCount();
     ++writes_;
     return {};
   }
 
-  [[nodiscard]] Result<void> Finish() override {
+  Result<void> Finish() override {
     finished_ = true;
-    if (failure_ == FailurePoint::kFinish) return Failure<void>(ErrorCode::kIo, "finish failed");
+    if (failure_ == FailurePoint::kFinish) {
+      return Failure<void>(ErrorCode::kIo, "finish failed");
+    }
     return {};
   }
 
-  [[nodiscard]] bool Began() const noexcept { return began_; }
-  [[nodiscard]] bool Finished() const noexcept { return finished_; }
-  [[nodiscard]] bool SchemaMatches() const noexcept { return schema_matches_; }
-  [[nodiscard]] std::size_t Writes() const noexcept { return writes_; }
-  [[nodiscard]] std::uint64_t Rows() const noexcept { return rows_; }
+  bool Began() const noexcept {
+    return began_;
+  }
+  bool Finished() const noexcept {
+    return finished_;
+  }
+  bool SchemaMatches() const noexcept {
+    return schema_matches_;
+  }
+  std::size_t Writes() const noexcept {
+    return writes_;
+  }
+  std::uint64_t Rows() const noexcept {
+    return rows_;
+  }
 
  private:
   FailurePoint failure_;
@@ -151,6 +182,8 @@ void TestErrorPropagation() {
 int main() {
   TestSuccessfulPipeline();
   TestErrorPropagation();
-  if (failures != 0) std::cerr << failures << " test(s) failed\n";
+  if (failures != 0) {
+    std::cerr << failures << " test(s) failed\n";
+  }
   return failures == 0 ? 0 : 1;
 }

@@ -11,9 +11,23 @@
 namespace borophene::io {
 namespace {
 
-enum class CsvState : std::uint8_t { kFieldStart, kUnquoted, kQuoted, kAfterQuote };
+enum class CsvState : std::uint8_t {
+  kFieldStart,
+  kUnquoted,
+  kQuoted,
+  kAfterQuote
+};
 
-[[nodiscard]] Result<void> ValidateOptions(const CsvOptions& options) {
+enum class CsvParseAction : std::uint8_t {
+  kContinue,
+  kFinishRecord
+};
+
+using CsvRow = std::vector<std::string>;
+using CsvReadResult = Result<std::optional<CsvRow>>;
+using CsvStepResult = Result<CsvParseAction>;
+
+Result<void> ValidateOptions(const CsvOptions& options) {
   if (options.delimiter == options.quote) {
     return Failure<void>(ErrorCode::kInvalidArgument, "CSV delimiter and quote must be different");
   }
@@ -29,188 +43,284 @@ enum class CsvState : std::uint8_t { kFieldStart, kUnquoted, kQuoted, kAfterQuot
   return {};
 }
 
-[[nodiscard]] std::string Context(Index record, std::size_t field) {
+std::string CsvContext(Index record, std::size_t field) {
   return "CSV record " + std::to_string(record) + ", field " + std::to_string(field) + ": ";
 }
 
-}  // namespace
+class CsvRecordParser {
+ public:
+  CsvRecordParser(std::istream& input, const CsvOptions& options, Index& record_number)
+      : input_(input), options_(options), record_number_(record_number), current_record_(record_number + 1) {
+  }
 
-CsvReader::CsvReader(std::istream& input, CsvOptions options) : input_(input), options_(options) {}
+  CsvReadResult Parse() {
+    try {
+      while (true) {
+        const int value = input_.get();
+        if (value == std::char_traits<char>::eof()) {
+          return HandleEndOfInput();
+        }
 
-Result<std::optional<std::vector<std::string>>> CsvReader::Next() {
-  using NextResult = Result<std::optional<std::vector<std::string>>>;
+        saw_input_ = true;
+        const char character = std::char_traits<char>::to_char_type(value);
+        auto step = HandleCharacter(character);
+        if (!step) {
+          return std::unexpected(step.error());
+        }
+        if (*step == CsvParseAction::kFinishRecord) {
+          return FinishRecord();
+        }
+      }
+    } catch (const std::ios_base::failure& failure) {
+      return HandleInputFailure(failure);
+    }
+  }
 
-  auto validation = ValidateOptions(options_);
-  if (!validation) return std::unexpected(validation.error());
+ private:
+  Error MalformedError(std::string message) const {
+    return {ErrorCode::kMalformedCsv, CurrentContext() + std::move(message)};
+  }
 
-  const Index current_record = record_number_ + 1;
-  std::vector<std::string> fields;
-  std::string field;
-  CsvState state = CsvState::kFieldStart;
-  std::size_t record_bytes = 0;
-  bool saw_input = false;
+  CsvReadResult StreamFailure(const char* detail = nullptr) const {
+    std::string message = CurrentContext() + "input stream failure";
+    if (detail != nullptr) {
+      message += ": ";
+      message += detail;
+    }
+    return std::unexpected(Error(ErrorCode::kIo, std::move(message)));
+  }
 
-  const auto malformed = [&](std::string message) -> NextResult {
-    return Failure<std::optional<std::vector<std::string>>>(
-        ErrorCode::kMalformedCsv, Context(current_record, fields.size() + 1) + std::move(message));
-  };
-  const auto stream_failure = [&]() -> NextResult {
-    return Failure<std::optional<std::vector<std::string>>>(
-        ErrorCode::kIo, Context(current_record, fields.size() + 1) + "input stream failure");
-  };
-  const auto account_byte = [&]() -> Result<void> {
-    if (record_bytes >= options_.max_record_bytes) {
-      return Failure<void>(ErrorCode::kMalformedCsv, Context(current_record, fields.size() + 1) +
-                                                         "record exceeds the byte limit of " +
+  std::string CurrentContext() const {
+    return CsvContext(current_record_, fields_.size() + 1);
+  }
+
+  Result<void> AccountByte() {
+    if (record_bytes_ >= options_.max_record_bytes) {
+      return Failure<void>(ErrorCode::kMalformedCsv, CurrentContext() + "record exceeds the byte limit of " +
                                                          std::to_string(options_.max_record_bytes));
     }
-    ++record_bytes;
+    ++record_bytes_;
     return {};
-  };
-  const auto append_field = [&]() -> Result<void> {
-    if (fields.size() >= options_.max_fields) {
-      return Failure<void>(ErrorCode::kMalformedCsv, Context(current_record, fields.size() + 1) +
-                                                         "record exceeds the field limit of " +
+  }
+
+  Result<void> AppendField() {
+    if (fields_.size() >= options_.max_fields) {
+      return Failure<void>(ErrorCode::kMalformedCsv, CurrentContext() + "record exceeds the field limit of " +
                                                          std::to_string(options_.max_fields));
     }
-    fields.push_back(std::move(field));
-    field.clear();
+    fields_.push_back(std::move(field_));
+    field_.clear();
     return {};
-  };
-  const auto finish_record = [&]() -> NextResult {
-    auto appended = append_field();
-    if (!appended) return std::unexpected(appended.error());
+  }
+
+  CsvReadResult FinishRecord() {
+    auto appended = AppendField();
+    if (!appended) {
+      return std::unexpected(appended.error());
+    }
     ++record_number_;
-    return std::optional<std::vector<std::string>>(std::move(fields));
-  };
-  const auto consume_lf = [&]() -> Result<void> {
+    return std::optional<CsvRow>(std::move(fields_));
+  }
+
+  Result<void> ConsumeLineFeed() {
     try {
       const int next = input_.peek();
       if (next == std::char_traits<char>::eof()) {
         if (input_.bad() || (!input_.eof() && input_.fail())) {
-          return Failure<void>(ErrorCode::kIo, Context(current_record, fields.size() + 1) + "input stream failure");
+          return Failure<void>(ErrorCode::kIo, CurrentContext() + "input stream failure");
         }
         return {};
       }
       if (std::char_traits<char>::to_char_type(next) == '\n') {
         static_cast<void>(input_.get());
         if (!input_) {
-          return Failure<void>(ErrorCode::kIo, Context(current_record, fields.size() + 1) + "input stream failure");
+          return Failure<void>(ErrorCode::kIo, CurrentContext() + "input stream failure");
         }
       }
     } catch (const std::ios_base::failure& failure) {
       if (input_.eof() && !input_.bad()) {
         return {};
       }
-      return Failure<void>(ErrorCode::kIo,
-                           Context(current_record, fields.size() + 1) + "input stream failure: " + failure.what());
+      return Failure<void>(ErrorCode::kIo, CurrentContext() + "input stream failure: " + failure.what());
     }
     return {};
-  };
-
-  try {
-    while (true) {
-      const int value = input_.get();
-      if (value == std::char_traits<char>::eof()) {
-        if (input_.bad() || (!input_.eof() && input_.fail())) return stream_failure();
-        if (state == CsvState::kQuoted) return malformed("unclosed quoted field");
-        if (!saw_input) return std::optional<std::vector<std::string>>{};
-        return finish_record();
-      }
-
-      saw_input = true;
-      const char character = std::char_traits<char>::to_char_type(value);
-      switch (state) {
-        case CsvState::kFieldStart:
-          if (character == options_.delimiter) {
-            auto accounted = account_byte();
-            if (!accounted) return std::unexpected(accounted.error());
-            auto appended = append_field();
-            if (!appended) return std::unexpected(appended.error());
-          } else if (character == options_.quote) {
-            auto accounted = account_byte();
-            if (!accounted) return std::unexpected(accounted.error());
-            state = CsvState::kQuoted;
-          } else if (character == '\n') {
-            return finish_record();
-          } else if (character == '\r') {
-            auto consumed = consume_lf();
-            if (!consumed) return std::unexpected(consumed.error());
-            return finish_record();
-          } else {
-            auto accounted = account_byte();
-            if (!accounted) return std::unexpected(accounted.error());
-            field.push_back(character);
-            state = CsvState::kUnquoted;
-          }
-          break;
-
-        case CsvState::kUnquoted:
-          if (character == options_.delimiter) {
-            auto accounted = account_byte();
-            if (!accounted) return std::unexpected(accounted.error());
-            auto appended = append_field();
-            if (!appended) return std::unexpected(appended.error());
-            state = CsvState::kFieldStart;
-          } else if (character == options_.quote) {
-            return malformed("quote inside an unquoted field");
-          } else if (character == '\n') {
-            return finish_record();
-          } else if (character == '\r') {
-            auto consumed = consume_lf();
-            if (!consumed) return std::unexpected(consumed.error());
-            return finish_record();
-          } else {
-            auto accounted = account_byte();
-            if (!accounted) return std::unexpected(accounted.error());
-            field.push_back(character);
-          }
-          break;
-
-        case CsvState::kQuoted: {
-          auto accounted = account_byte();
-          if (!accounted) return std::unexpected(accounted.error());
-          if (character == options_.quote) {
-            state = CsvState::kAfterQuote;
-          } else {
-            field.push_back(character);
-          }
-          break;
-        }
-
-        case CsvState::kAfterQuote:
-          if (character == options_.quote) {
-            auto accounted = account_byte();
-            if (!accounted) return std::unexpected(accounted.error());
-            field.push_back(character);
-            state = CsvState::kQuoted;
-          } else if (character == options_.delimiter) {
-            auto accounted = account_byte();
-            if (!accounted) return std::unexpected(accounted.error());
-            auto appended = append_field();
-            if (!appended) return std::unexpected(appended.error());
-            state = CsvState::kFieldStart;
-          } else if (character == '\n') {
-            return finish_record();
-          } else if (character == '\r') {
-            auto consumed = consume_lf();
-            if (!consumed) return std::unexpected(consumed.error());
-            return finish_record();
-          } else {
-            return malformed("unexpected character after a closing quote");
-          }
-          break;
-      }
-    }
-  } catch (const std::ios_base::failure& failure) {
-    if (input_.eof() && !input_.bad()) {
-      if (state == CsvState::kQuoted) return malformed("unclosed quoted field");
-      if (!saw_input) return std::optional<std::vector<std::string>>{};
-      return finish_record();
-    }
-    return Failure<std::optional<std::vector<std::string>>>(
-        ErrorCode::kIo, Context(current_record, fields.size() + 1) + "input stream failure: " + failure.what());
   }
+
+  CsvStepResult HandleCharacter(char character) {
+    switch (state_) {
+      case CsvState::kFieldStart:
+        return HandleFieldStart(character);
+      case CsvState::kUnquoted:
+        return HandleUnquoted(character);
+      case CsvState::kQuoted:
+        return HandleQuoted(character);
+      case CsvState::kAfterQuote:
+        return HandleAfterQuote(character);
+    }
+    return Failure<CsvParseAction>(ErrorCode::kInvalidState, "CSV parser entered an invalid state");
+  }
+
+  CsvStepResult HandleFieldStart(char character) {
+    if (character == options_.delimiter) {
+      auto accounted = AccountByte();
+      if (!accounted) {
+        return std::unexpected(accounted.error());
+      }
+      auto appended = AppendField();
+      if (!appended) {
+        return std::unexpected(appended.error());
+      }
+    } else if (character == options_.quote) {
+      auto accounted = AccountByte();
+      if (!accounted) {
+        return std::unexpected(accounted.error());
+      }
+      state_ = CsvState::kQuoted;
+    } else if (character == '\n') {
+      return CsvParseAction::kFinishRecord;
+    } else if (character == '\r') {
+      auto consumed = ConsumeLineFeed();
+      if (!consumed) {
+        return std::unexpected(consumed.error());
+      }
+      return CsvParseAction::kFinishRecord;
+    } else {
+      auto accounted = AccountByte();
+      if (!accounted) {
+        return std::unexpected(accounted.error());
+      }
+      field_.push_back(character);
+      state_ = CsvState::kUnquoted;
+    }
+    return CsvParseAction::kContinue;
+  }
+
+  CsvStepResult HandleUnquoted(char character) {
+    if (character == options_.delimiter) {
+      auto accounted = AccountByte();
+      if (!accounted) {
+        return std::unexpected(accounted.error());
+      }
+      auto appended = AppendField();
+      if (!appended) {
+        return std::unexpected(appended.error());
+      }
+      state_ = CsvState::kFieldStart;
+    } else if (character == options_.quote) {
+      return std::unexpected(MalformedError("quote inside an unquoted field"));
+    } else if (character == '\n') {
+      return CsvParseAction::kFinishRecord;
+    } else if (character == '\r') {
+      auto consumed = ConsumeLineFeed();
+      if (!consumed) {
+        return std::unexpected(consumed.error());
+      }
+      return CsvParseAction::kFinishRecord;
+    } else {
+      auto accounted = AccountByte();
+      if (!accounted) {
+        return std::unexpected(accounted.error());
+      }
+      field_.push_back(character);
+    }
+    return CsvParseAction::kContinue;
+  }
+
+  CsvStepResult HandleQuoted(char character) {
+    auto accounted = AccountByte();
+    if (!accounted) {
+      return std::unexpected(accounted.error());
+    }
+    if (character == options_.quote) {
+      state_ = CsvState::kAfterQuote;
+    } else {
+      field_.push_back(character);
+    }
+    return CsvParseAction::kContinue;
+  }
+
+  CsvStepResult HandleAfterQuote(char character) {
+    if (character == options_.quote) {
+      auto accounted = AccountByte();
+      if (!accounted) {
+        return std::unexpected(accounted.error());
+      }
+      field_.push_back(character);
+      state_ = CsvState::kQuoted;
+    } else if (character == options_.delimiter) {
+      auto accounted = AccountByte();
+      if (!accounted) {
+        return std::unexpected(accounted.error());
+      }
+      auto appended = AppendField();
+      if (!appended) {
+        return std::unexpected(appended.error());
+      }
+      state_ = CsvState::kFieldStart;
+    } else if (character == '\n') {
+      return CsvParseAction::kFinishRecord;
+    } else if (character == '\r') {
+      auto consumed = ConsumeLineFeed();
+      if (!consumed) {
+        return std::unexpected(consumed.error());
+      }
+      return CsvParseAction::kFinishRecord;
+    } else {
+      return std::unexpected(MalformedError("unexpected character after a closing quote"));
+    }
+    return CsvParseAction::kContinue;
+  }
+
+  CsvReadResult HandleEndOfInput() {
+    if (input_.bad() || (!input_.eof() && input_.fail())) {
+      return StreamFailure();
+    }
+    if (state_ == CsvState::kQuoted) {
+      return std::unexpected(MalformedError("unclosed quoted field"));
+    }
+    if (!saw_input_) {
+      return std::optional<CsvRow>{};
+    }
+    return FinishRecord();
+  }
+
+  CsvReadResult HandleInputFailure(const std::ios_base::failure& failure) {
+    if (input_.eof() && !input_.bad()) {
+      if (state_ == CsvState::kQuoted) {
+        return std::unexpected(MalformedError("unclosed quoted field"));
+      }
+      if (!saw_input_) {
+        return std::optional<CsvRow>{};
+      }
+      return FinishRecord();
+    }
+    return StreamFailure(failure.what());
+  }
+
+  std::istream& input_;
+  const CsvOptions& options_;
+  Index& record_number_;
+  Index current_record_;
+  CsvRow fields_;
+  std::string field_;
+  CsvState state_ = CsvState::kFieldStart;
+  std::size_t record_bytes_ = 0;
+  bool saw_input_ = false;
+};
+
+}  // namespace
+
+CsvReader::CsvReader(std::istream& input, CsvOptions options) : input_(input), options_(options) {
+}
+
+Result<std::optional<std::vector<std::string>>> CsvReader::Next() {
+  auto validation = ValidateOptions(options_);
+  if (!validation) {
+    return std::unexpected(validation.error());
+  }
+
+  CsvRecordParser parser(input_, options_, record_number_);
+  return parser.Parse();
 }
 
 }  // namespace borophene::io

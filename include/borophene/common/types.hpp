@@ -1,5 +1,4 @@
-#ifndef BOROPHENE_COMMON_TYPES_HPP_
-#define BOROPHENE_COMMON_TYPES_HPP_
+#pragma once
 
 #include <cstddef>
 #include <cstdint>
@@ -12,5 +11,3 @@ using BytePointer = Byte*;
 using ConstBytePointer = const Byte*;
 
 }  // namespace borophene
-
-#endif  // BOROPHENE_COMMON_TYPES_HPP_

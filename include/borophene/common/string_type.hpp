@@ -10,8 +10,7 @@
 // Modifications made for the Borophene project.
 //===----------------------------------------------------------------------===//
 
-#ifndef BOROPHENE_COMMON_STRING_TYPE_HPP_
-#define BOROPHENE_COMMON_STRING_TYPE_HPP_
+#pragma once
 
 #include <algorithm>
 #include <array>
@@ -36,9 +35,12 @@ class StringT {
   static constexpr Index kPrefixBytes = kPrefixLength;
   static constexpr Index kInlineBytes = kInlineLength;
 
-  constexpr StringT() noexcept : storage_{} {}
+  constexpr StringT() noexcept : storage_{} {
+  }
 
-  StringT(const char* data, Index length) { Initialize(data, length); }
+  StringT(const char* data, Index length) {
+    Initialize(data, length);
+  }
 
   StringT(const char* data) {  // NOLINT: Preserves string-literal ergonomics.
     if (data == nullptr) {
@@ -48,26 +50,41 @@ class StringT {
   }
 
   StringT(std::string_view value)  // NOLINT: StringT is a string-view value.
-      : StringT(value.data(), value.size()) {}
+      : StringT(value.data(), value.size()) {
+  }
 
   StringT(const std::string& value)  // NOLINT: Long values are explicitly borrowed.
-      : StringT(value.data(), value.size()) {}
+      : StringT(value.data(), value.size()) {
+  }
 
   StringT(std::string&&) = delete;
   StringT(const std::string&&) = delete;
 
-  [[nodiscard]] Index GetSize() const noexcept { return storage_.inlined_.length_; }
+  Index GetSize() const noexcept {
+    return storage_.inlined_.length_;
+  }
 
-  [[nodiscard]] const char* GetData() const noexcept {
+  const char* GetData() const noexcept {
     return IsInlined() ? storage_.inlined_.data_.data() : storage_.borrowed_.data_;
   }
 
-  [[nodiscard]] std::string GetString() const { return std::string(GetView()); }
-  [[nodiscard]] std::string_view GetView() const noexcept { return {GetData(), GetSize()}; }
-  [[nodiscard]] bool Empty() const noexcept { return GetSize() == 0; }
-  [[nodiscard]] bool IsInlined() const noexcept { return GetSize() <= kInlineLength; }
+  std::string GetString() const {
+    return std::string(GetView());
+  }
 
-  [[nodiscard]] std::uint32_t GetPrefixIntegerComparable() const noexcept {
+  std::string_view GetView() const noexcept {
+    return {GetData(), GetSize()};
+  }
+
+  bool Empty() const noexcept {
+    return GetSize() == 0;
+  }
+
+  bool IsInlined() const noexcept {
+    return GetSize() <= kInlineLength;
+  }
+
+  std::uint32_t GetPrefixIntegerComparable() const noexcept {
     std::uint32_t result = 0;
     const auto kPrefixSize = std::min(GetSize(), kPrefixLength);
     for (Index index = 0; index < kPrefixLength; ++index) {
@@ -79,14 +96,33 @@ class StringT {
     return result;
   }
 
-  explicit operator std::string() const { return GetString(); }
+  explicit operator std::string() const {
+    return GetString();
+  }
 
-  [[nodiscard]] bool operator==(const StringT& other) const noexcept { return GetView() == other.GetView(); }
-  [[nodiscard]] bool operator!=(const StringT& other) const noexcept { return !(*this == other); }
-  [[nodiscard]] bool operator<(const StringT& other) const noexcept { return GetView() < other.GetView(); }
-  [[nodiscard]] bool operator>(const StringT& other) const noexcept { return other < *this; }
-  [[nodiscard]] bool operator<=(const StringT& other) const noexcept { return !(other < *this); }
-  [[nodiscard]] bool operator>=(const StringT& other) const noexcept { return !(*this < other); }
+  bool operator==(const StringT& other) const noexcept {
+    return GetView() == other.GetView();
+  }
+
+  bool operator!=(const StringT& other) const noexcept {
+    return !(*this == other);
+  }
+
+  bool operator<(const StringT& other) const noexcept {
+    return GetView() < other.GetView();
+  }
+
+  bool operator>(const StringT& other) const noexcept {
+    return other < *this;
+  }
+
+  bool operator<=(const StringT& other) const noexcept {
+    return !(other < *this);
+  }
+
+  bool operator>=(const StringT& other) const noexcept {
+    return !(*this < other);
+  }
 
  private:
   struct Inlined {
@@ -131,5 +167,3 @@ static_assert(sizeof(StringT) == 16, "StringT must remain a compact 16-byte valu
 static_assert(std::is_trivially_copyable_v<StringT>, "StringT copies must preserve their value representation");
 
 }  // namespace borophene
-
-#endif  // BOROPHENE_COMMON_STRING_TYPE_HPP_

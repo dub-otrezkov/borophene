@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <functional>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -31,10 +32,10 @@ void Check(bool condition, std::string_view message) {
   ++failures;
 }
 
-template <typename Exception, typename Function>
-void CheckThrows(Function&& function, std::string_view message) {
+template <typename Exception, typename Function, typename... Arguments>
+void CheckThrows(Function&& function, std::string_view message, Arguments&&... arguments) {
   try {
-    std::forward<Function>(function)();
+    std::invoke(std::forward<Function>(function), std::forward<Arguments>(arguments)...);
   } catch (const Exception&) {
     return;
   } catch (...) {
@@ -42,6 +43,22 @@ void CheckThrows(Function&& function, std::string_view message) {
     return;
   }
   Check(false, message);
+}
+
+void ConstructStringWithNullData() {
+  [[maybe_unused]] borophene::StringT invalid(nullptr, 1);
+}
+
+void ConstructStringFromNullCString() {
+  [[maybe_unused]] borophene::StringT invalid(nullptr);
+}
+
+void ReadInvalidValidityIndex(const borophene::ValidityMask& mask) {
+  (void)mask.IsValid(3);
+}
+
+void ReadStringValues(const borophene::Result<borophene::ColumnVector>& column) {
+  (void)column->StringValues();
 }
 
 void TestStringT() {
@@ -61,9 +78,8 @@ void TestStringT() {
   Check(StringT("abc") < StringT("abd"), "StringT lexicographic ordering");
   Check(StringT("abc") < StringT("abcd"), "StringT length breaks equal-prefix ties");
   Check(StringT("abcd").GetPrefixIntegerComparable() == 0x61626364U, "prefix integer is byte-comparable");
-  CheckThrows<std::invalid_argument>([] { [[maybe_unused]] StringT invalid(nullptr, 1); },
-                                     "null StringT data is rejected");
-  CheckThrows<std::invalid_argument>([] { [[maybe_unused]] StringT invalid(nullptr); }, "null C strings are rejected");
+  CheckThrows<std::invalid_argument>(ConstructStringWithNullData, "null StringT data is rejected");
+  CheckThrows<std::invalid_argument>(ConstructStringFromNullCString, "null C strings are rejected");
 }
 
 void TestSchema() {
@@ -96,14 +112,14 @@ void TestColumnsAndChunks() {
   Check(mask.NullCount() == 0, "validity masks start fully valid");
   mask.SetValid(1, false);
   Check(mask.IsValid(0) && !mask.IsValid(1) && mask.NullCount() == 1, "validity bits can be cleared");
-  CheckThrows<std::out_of_range>([&mask] { (void)mask.IsValid(3); }, "validity reads are bounds checked");
+  CheckThrows<std::out_of_range>(ReadInvalidValidityIndex, "validity reads are bounds checked", mask);
 
   Check(!ColumnVector::CreateInt32({1, 2}, ValidityMask(1)), "column and validity sizes must match");
   auto ids = ColumnVector::CreateInt32({1, 2, 3}, mask);
   auto names = ColumnVector::CreateString({"a", "b", "c"});
   Check(ids && ids->Validity().NullCount() == 1 && ids->Int32Values()[2] == 3, "INT32 columns own values");
   Check(names && names->StringValues()[1] == "b", "STRING columns own values");
-  CheckThrows<std::logic_error>([&ids] { (void)ids->StringValues(); }, "wrong typed access is rejected");
+  CheckThrows<std::logic_error>(ReadStringValues, "wrong typed access is rejected", ids);
 
   auto schema = Schema::Create({{.name = "id", .type = LogicalType::kInt32, .nullable = true},
                                 {.name = "name", .type = LogicalType::kString, .nullable = true}});

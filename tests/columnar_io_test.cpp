@@ -41,7 +41,9 @@ using borophene::storage::ColumnarWriter;
 int failures = 0;
 
 void Check(bool condition, std::string_view message) {
-  if (condition) return;
+  if (condition) {
+    return;
+  }
   std::cerr << "FAILED: " << message << '\n';
   ++failures;
 }
@@ -53,16 +55,19 @@ struct MemoryStorage {
 
 class MemoryOutput final : public OutputFile {
  public:
-  explicit MemoryOutput(std::shared_ptr<MemoryStorage> storage) : storage_(std::move(storage)) {}
+  explicit MemoryOutput(std::shared_ptr<MemoryStorage> storage) : storage_(std::move(storage)) {
+  }
 
-  [[nodiscard]] std::uint64_t Position() const noexcept override { return storage_->bytes.size(); }
+  std::uint64_t Position() const noexcept override {
+    return storage_->bytes.size();
+  }
 
-  [[nodiscard]] Result<void> Write(std::span<const std::byte> data) override {
+  Result<void> Write(std::span<const std::byte> data) override {
     storage_->bytes.insert(storage_->bytes.end(), data.begin(), data.end());
     return {};
   }
 
-  [[nodiscard]] Result<void> Flush() override {
+  Result<void> Flush() override {
     storage_->flushed = true;
     return {};
   }
@@ -73,12 +78,17 @@ class MemoryOutput final : public OutputFile {
 
 class MemoryInput : public RandomAccessFile {
  public:
-  explicit MemoryInput(std::vector<std::byte> bytes) : bytes_(std::move(bytes)) {}
+  explicit MemoryInput(std::vector<std::byte> bytes) : bytes_(std::move(bytes)) {
+  }
 
-  [[nodiscard]] Result<std::uint64_t> Size() const override { return bytes_.size(); }
+  Result<std::uint64_t> Size() const override {
+    return bytes_.size();
+  }
 
-  [[nodiscard]] Result<std::size_t> ReadAt(std::uint64_t offset, std::span<std::byte> destination) const override {
-    if (offset >= bytes_.size()) return std::size_t{0};
+  Result<std::size_t> ReadAt(std::uint64_t offset, std::span<std::byte> destination) const override {
+    if (offset >= bytes_.size()) {
+      return std::size_t{0};
+    }
     const std::size_t size =
         std::min<std::size_t>(destination.size(), bytes_.size() - static_cast<std::size_t>(offset));
     std::copy_n(bytes_.begin() + static_cast<std::ptrdiff_t>(offset), size, destination.begin());
@@ -91,16 +101,18 @@ class MemoryInput : public RandomAccessFile {
 
 class ExtremePositionOutput final : public OutputFile {
  public:
-  [[nodiscard]] std::uint64_t Position() const noexcept override {
+  std::uint64_t Position() const noexcept override {
     return wrote_header_ ? std::numeric_limits<std::uint64_t>::max() : 0;
   }
 
-  [[nodiscard]] Result<void> Write(std::span<const std::byte>) override {
+  Result<void> Write(std::span<const std::byte>) override {
     wrote_header_ = true;
     return {};
   }
 
-  [[nodiscard]] Result<void> Flush() override { return {}; }
+  Result<void> Flush() override {
+    return {};
+  }
 
  private:
   bool wrote_header_ = false;
@@ -108,12 +120,17 @@ class ExtremePositionOutput final : public OutputFile {
 
 class ShortReadInput final : public RandomAccessFile {
  public:
-  explicit ShortReadInput(std::vector<std::byte> bytes) : bytes_(std::move(bytes)) {}
+  explicit ShortReadInput(std::vector<std::byte> bytes) : bytes_(std::move(bytes)) {
+  }
 
-  [[nodiscard]] Result<std::uint64_t> Size() const override { return bytes_.size(); }
+  Result<std::uint64_t> Size() const override {
+    return bytes_.size();
+  }
 
-  [[nodiscard]] Result<std::size_t> ReadAt(std::uint64_t offset, std::span<std::byte> destination) const override {
-    if (offset >= bytes_.size()) return std::size_t{0};
+  Result<std::size_t> ReadAt(std::uint64_t offset, std::span<std::byte> destination) const override {
+    if (offset >= bytes_.size()) {
+      return std::size_t{0};
+    }
     const auto size = std::min<std::size_t>({destination.size(), bytes_.size() - static_cast<std::size_t>(offset), 3});
     std::copy_n(bytes_.begin() + static_cast<std::ptrdiff_t>(offset), size, destination.begin());
     return size;
@@ -123,11 +140,11 @@ class ShortReadInput final : public RandomAccessFile {
   std::vector<std::byte> bytes_;
 };
 
-[[nodiscard]] std::uint8_t U8(const std::vector<std::byte>& bytes, std::size_t offset) {
+std::uint8_t U8(const std::vector<std::byte>& bytes, std::size_t offset) {
   return std::to_integer<std::uint8_t>(bytes.at(offset));
 }
 
-[[nodiscard]] std::uint32_t U32(const std::vector<std::byte>& bytes, std::size_t offset) {
+std::uint32_t U32(const std::vector<std::byte>& bytes, std::size_t offset) {
   std::uint32_t value = 0;
   for (unsigned int index = 0; index < 4; ++index) {
     value |= static_cast<std::uint32_t>(U8(bytes, offset + index)) << (8U * index);
@@ -135,7 +152,7 @@ class ShortReadInput final : public RandomAccessFile {
   return value;
 }
 
-[[nodiscard]] std::uint64_t U64(const std::vector<std::byte>& bytes, std::size_t offset) {
+std::uint64_t U64(const std::vector<std::byte>& bytes, std::size_t offset) {
   std::uint64_t value = 0;
   for (unsigned int index = 0; index < 8; ++index) {
     value |= static_cast<std::uint64_t>(U8(bytes, offset + index)) << (8U * index);
@@ -155,29 +172,29 @@ void SetU64(std::vector<std::byte>& bytes, std::size_t offset, std::uint64_t val
   }
 }
 
-[[nodiscard]] Schema IntSchema(bool nullable = false) {
+Schema IntSchema(bool nullable = false) {
   return Schema::Create({Field{.name = "id", .type = LogicalType::kInt32, .nullable = nullable}}).value();
 }
 
-[[nodiscard]] Schema MixedSchema() {
+Schema MixedSchema() {
   return Schema::Create({Field{.name = "id", .type = LogicalType::kInt32, .nullable = true},
                          Field{.name = "name", .type = LogicalType::kString, .nullable = true}})
       .value();
 }
 
-[[nodiscard]] DataChunk IntChunk(std::vector<std::int32_t> values) {
+DataChunk IntChunk(std::vector<std::int32_t> values) {
   auto column = ColumnVector::CreateInt32(std::move(values)).value();
   return DataChunk::Create(IntSchema(), {std::move(column)}).value();
 }
 
-[[nodiscard]] DataChunk MixedChunk(std::vector<std::int32_t> ids, ValidityMask id_validity,
-                                   std::vector<std::string> names, ValidityMask name_validity) {
+DataChunk MixedChunk(std::vector<std::int32_t> ids, ValidityMask id_validity, std::vector<std::string> names,
+                     ValidityMask name_validity) {
   auto id_column = ColumnVector::CreateInt32(std::move(ids), std::move(id_validity)).value();
   auto name_column = ColumnVector::CreateString(std::move(names), std::move(name_validity)).value();
   return DataChunk::Create(MixedSchema(), {std::move(id_column), std::move(name_column)}).value();
 }
 
-[[nodiscard]] std::shared_ptr<MemoryStorage> WriteEmptyTable(const Schema& schema) {
+std::shared_ptr<MemoryStorage> WriteEmptyTable(const Schema& schema) {
   auto storage = std::make_shared<MemoryStorage>();
   auto writer = ColumnarWriter::Create(std::make_unique<MemoryOutput>(storage)).value();
   writer.Begin(schema).value();
@@ -185,7 +202,7 @@ void SetU64(std::vector<std::byte>& bytes, std::size_t offset, std::uint64_t val
   return storage;
 }
 
-[[nodiscard]] std::shared_ptr<MemoryStorage> WriteMixedTable() {
+std::shared_ptr<MemoryStorage> WriteMixedTable() {
   ValidityMask int_validity(4);
   int_validity.SetValid(1, false);
   ValidityMask string_validity(4);
@@ -433,6 +450,8 @@ int main() {
     std::cerr << "unexpected non-standard exception\n";
     return 1;
   }
-  if (failures != 0) std::cerr << failures << " test(s) failed\n";
+  if (failures != 0) {
+    std::cerr << failures << " test(s) failed\n";
+  }
   return failures == 0 ? 0 : 1;
 }

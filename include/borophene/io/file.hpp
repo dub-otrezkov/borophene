@@ -1,5 +1,4 @@
-#ifndef BOROPHENE_IO_FILE_HPP_
-#define BOROPHENE_IO_FILE_HPP_
+#pragma once
 
 #include <cstddef>
 #include <cstdint>
@@ -22,8 +21,8 @@ class RandomAccessFile {
   RandomAccessFile(RandomAccessFile&&) noexcept = default;
   RandomAccessFile& operator=(RandomAccessFile&&) noexcept = default;
 
-  [[nodiscard]] virtual Result<std::uint64_t> Size() const = 0;
-  [[nodiscard]] virtual Result<std::size_t> ReadAt(std::uint64_t offset, std::span<Byte> destination) const = 0;
+  virtual Result<std::uint64_t> Size() const = 0;
+  virtual Result<std::size_t> ReadAt(std::uint64_t offset, std::span<Byte> destination) const = 0;
 };
 
 class OutputFile {
@@ -36,16 +35,14 @@ class OutputFile {
   OutputFile(OutputFile&&) noexcept = default;
   OutputFile& operator=(OutputFile&&) noexcept = default;
 
-  [[nodiscard]] virtual std::uint64_t Position() const noexcept = 0;
-  [[nodiscard]] virtual Result<void> Write(std::span<const Byte> data) = 0;
-  [[nodiscard]] virtual Result<void> Flush() = 0;
+  virtual std::uint64_t Position() const noexcept = 0;
+  virtual Result<void> Write(std::span<const Byte> data) = 0;
+  virtual Result<void> Flush() = 0;
 };
 
-[[nodiscard]] Result<void> ReadExactly(const RandomAccessFile& file, std::uint64_t offset, std::span<Byte> destination);
+Result<void> ReadExactly(const RandomAccessFile& file, std::uint64_t offset, std::span<Byte> destination);
 
-[[nodiscard]] Result<std::unique_ptr<RandomAccessFile>> OpenLocalInput(const std::filesystem::path& path);
-[[nodiscard]] Result<std::unique_ptr<OutputFile>> CreateLocalOutput(const std::filesystem::path& path);
+Result<std::unique_ptr<RandomAccessFile>> OpenLocalInput(const std::filesystem::path& path);
+Result<std::unique_ptr<OutputFile>> CreateLocalOutput(const std::filesystem::path& path);
 
 }  // namespace borophene::io
-
-#endif  // BOROPHENE_IO_FILE_HPP_

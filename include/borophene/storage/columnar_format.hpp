@@ -1,5 +1,4 @@
-#ifndef BOROPHENE_STORAGE_COLUMNAR_FORMAT_HPP_
-#define BOROPHENE_STORAGE_COLUMNAR_FORMAT_HPP_
+#pragma once
 
 #include <array>
 #include <cstdint>
@@ -47,10 +46,8 @@ struct RowGroupMetadata {
   std::vector<ColumnChunkMetadata> chunks;
 };
 
-[[nodiscard]] constexpr std::uint64_t ValidityBitmapSize(std::uint64_t row_count) noexcept {
+constexpr std::uint64_t ValidityBitmapSize(std::uint64_t row_count) noexcept {
   return (row_count / 8U) + (row_count % 8U != 0U ? 1U : 0U);
 }
 
 }  // namespace borophene::storage
-
-#endif  // BOROPHENE_STORAGE_COLUMNAR_FORMAT_HPP_

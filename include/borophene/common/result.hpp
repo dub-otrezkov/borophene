@@ -1,5 +1,4 @@
-#ifndef BOROPHENE_COMMON_RESULT_HPP_
-#define BOROPHENE_COMMON_RESULT_HPP_
+#pragma once
 
 #include <expected>
 #include <string>
@@ -13,10 +12,8 @@ template <typename T>
 using Result = std::expected<T, Error>;
 
 template <typename T>
-[[nodiscard]] Result<T> Failure(ErrorCode code, std::string message) {
+Result<T> Failure(ErrorCode code, std::string message) {
   return std::unexpected(Error(code, std::move(message)));
 }
 
 }  // namespace borophene
-
-#endif  // BOROPHENE_COMMON_RESULT_HPP_

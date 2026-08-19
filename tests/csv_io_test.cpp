@@ -42,21 +42,27 @@ namespace {
 int failures = 0;
 
 void Check(bool condition, std::string_view message) {
-  if (condition) return;
+  if (condition) {
+    return;
+  }
   std::cerr << "FAILED: " << message << '\n';
   ++failures;
 }
 
 using Rows = std::vector<std::vector<std::string>>;
 
-[[nodiscard]] borophene::Result<Rows> ReadAll(std::string_view text, borophene::io::CsvOptions options = {}) {
+borophene::Result<Rows> ReadAll(std::string_view text, borophene::io::CsvOptions options = {}) {
   std::istringstream input{std::string(text)};
   borophene::io::CsvReader reader(input, options);
   Rows rows;
   while (true) {
     auto row = reader.Next();
-    if (!row) return std::unexpected(row.error());
-    if (!*row) return rows;
+    if (!row) {
+      return std::unexpected(row.error());
+    }
+    if (!*row) {
+      return rows;
+    }
     rows.push_back(std::move(**row));
   }
 }
@@ -117,17 +123,25 @@ void TestCsvLimits() {
 
 class FailingStreamBuffer final : public std::streambuf {
  protected:
-  int_type overflow(int_type) override { return traits_type::eof(); }
-  std::streamsize xsputn(const char*, std::streamsize) override { return 0; }
+  int_type overflow(int_type) override {
+    return traits_type::eof();
+  }
+
+  std::streamsize xsputn(const char*, std::streamsize) override {
+    return 0;
+  }
 };
 
 class ThrowingInputBuffer final : public std::streambuf {
  public:
-  explicit ThrowingInputBuffer(std::string prefix) : prefix_(std::move(prefix)) {}
+  explicit ThrowingInputBuffer(std::string prefix) : prefix_(std::move(prefix)) {
+  }
 
  protected:
   int_type underflow() override {
-    if (position_ < prefix_.size()) return traits_type::to_int_type(prefix_[position_]);
+    if (position_ < prefix_.size()) {
+      return traits_type::to_int_type(prefix_[position_]);
+    }
     throw std::ios_base::failure("simulated input failure");
   }
 
@@ -171,7 +185,9 @@ void TestCsvReaderExceptionEnabledEof() {
       while (true) {
         auto row = reader.Next();
         Check(row.has_value(), "exception-enabled streams preserve clean EOF");
-        if (!row || !*row) break;
+        if (!row || !*row) {
+          break;
+        }
         actual.push_back(std::move(**row));
       }
     } catch (...) {
@@ -251,13 +267,17 @@ void TestCsvWriterLimits() {
 
 class ChunkedFile final : public borophene::io::RandomAccessFile {
  public:
-  explicit ChunkedFile(std::string data) : data_(std::move(data)) {}
+  explicit ChunkedFile(std::string data) : data_(std::move(data)) {
+  }
 
-  [[nodiscard]] borophene::Result<std::uint64_t> Size() const override { return data_.size(); }
+  borophene::Result<std::uint64_t> Size() const override {
+    return data_.size();
+  }
 
-  [[nodiscard]] borophene::Result<std::size_t> ReadAt(std::uint64_t offset,
-                                                      std::span<borophene::Byte> destination) const override {
-    if (offset >= data_.size()) return std::size_t{0};
+  borophene::Result<std::size_t> ReadAt(std::uint64_t offset, std::span<borophene::Byte> destination) const override {
+    if (offset >= data_.size()) {
+      return std::size_t{0};
+    }
     const std::size_t available = data_.size() - static_cast<std::size_t>(offset);
     const std::size_t count = std::min({available, destination.size(), std::size_t{2}});
     std::memcpy(destination.data(), data_.data() + static_cast<std::size_t>(offset), count);
@@ -282,7 +302,9 @@ class TemporaryPath {
     std::filesystem::remove(path_, ignored);
   }
 
-  [[nodiscard]] const std::filesystem::path& Get() const noexcept { return path_; }
+  const std::filesystem::path& Get() const noexcept {
+    return path_;
+  }
 
  private:
   std::filesystem::path path_;
@@ -308,7 +330,9 @@ void TestFiles() {
   const std::string payload = "local-file-payload";
   auto output = CreateLocalOutput(temporary.Get());
   Check(output.has_value(), "local output file is created");
-  if (!output) return;
+  if (!output) {
+    return;
+  }
   auto payload_bytes = std::as_bytes(std::span(payload.data(), payload.size()));
   Check((*output)->Write(payload_bytes).has_value() && (*output)->Position() == payload.size(),
         "local output writes all bytes and tracks position");
@@ -317,7 +341,9 @@ void TestFiles() {
 
   auto input = OpenLocalInput(temporary.Get());
   Check(input.has_value(), "local input file is opened");
-  if (!input) return;
+  if (!input) {
+    return;
+  }
   Check((*input)->Size() == Result<std::uint64_t>(payload.size()), "local input reports file size");
   std::vector<Byte> bytes(payload.size());
   Check(ReadExactly(**input, 0, bytes).has_value(), "local input supports exact reads");
@@ -348,6 +374,8 @@ int main() {
     std::cerr << "unexpected non-standard exception\n";
     return 1;
   }
-  if (failures != 0) std::cerr << failures << " test(s) failed\n";
+  if (failures != 0) {
+    std::cerr << failures << " test(s) failed\n";
+  }
   return failures == 0 ? 0 : 1;
 }

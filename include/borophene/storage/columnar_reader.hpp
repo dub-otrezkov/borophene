@@ -1,5 +1,4 @@
-#ifndef BOROPHENE_STORAGE_COLUMNAR_READER_HPP_
-#define BOROPHENE_STORAGE_COLUMNAR_READER_HPP_
+#pragma once
 
 #include <filesystem>
 #include <memory>
@@ -17,20 +16,20 @@ namespace borophene::storage {
 
 class ColumnarReader final : public execution::ChunkSource {
  public:
-  [[nodiscard]] static Result<ColumnarReader> Open(std::unique_ptr<io::RandomAccessFile> file);
-  [[nodiscard]] static Result<ColumnarReader> Open(const std::filesystem::path& path);
+  static Result<ColumnarReader> Open(std::unique_ptr<io::RandomAccessFile> file);
+  static Result<ColumnarReader> Open(const std::filesystem::path& path);
 
   ColumnarReader(const ColumnarReader&) = delete;
   ColumnarReader& operator=(const ColumnarReader&) = delete;
   ColumnarReader(ColumnarReader&&) noexcept = default;
   ColumnarReader& operator=(ColumnarReader&&) = delete;
 
-  [[nodiscard]] const Schema& GetSchema() const noexcept override;
-  [[nodiscard]] Index RowCount() const noexcept;
-  [[nodiscard]] Index RowGroupCount() const noexcept;
+  const Schema& GetSchema() const noexcept override;
+  Index RowCount() const noexcept;
+  Index RowGroupCount() const noexcept;
 
-  [[nodiscard]] Result<DataChunk> ReadRowGroup(Index index) const;
-  [[nodiscard]] Result<std::optional<DataChunk>> Next() override;
+  Result<DataChunk> ReadRowGroup(Index index) const;
+  Result<std::optional<DataChunk>> Next() override;
   void Reset() noexcept;
 
  private:
@@ -45,5 +44,3 @@ class ColumnarReader final : public execution::ChunkSource {
 };
 
 }  // namespace borophene::storage
-
-#endif  // BOROPHENE_STORAGE_COLUMNAR_READER_HPP_

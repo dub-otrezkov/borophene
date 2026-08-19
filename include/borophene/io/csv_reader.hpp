@@ -1,5 +1,4 @@
-#ifndef BOROPHENE_IO_CSV_READER_HPP_
-#define BOROPHENE_IO_CSV_READER_HPP_
+#pragma once
 
 #include <cstddef>
 #include <istream>
@@ -28,8 +27,10 @@ class CsvReader {
   CsvReader(CsvReader&&) = delete;
   CsvReader& operator=(CsvReader&&) = delete;
 
-  [[nodiscard]] Result<std::optional<std::vector<std::string>>> Next();
-  [[nodiscard]] Index RecordNumber() const noexcept { return record_number_; }
+  Result<std::optional<std::vector<std::string>>> Next();
+  Index RecordNumber() const noexcept {
+    return record_number_;
+  }
 
  private:
   std::istream& input_;
@@ -38,5 +39,3 @@ class CsvReader {
 };
 
 }  // namespace borophene::io
-
-#endif  // BOROPHENE_IO_CSV_READER_HPP_

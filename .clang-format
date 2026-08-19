@@ -7,5 +7,10 @@ DerivePointerAlignment: false
 PointerAlignment: Left
 SortIncludes: CaseSensitive
 IncludeBlocks: Regroup
-AllowShortFunctionsOnASingleLine: Inline
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLambdasOnASingleLine: None
+AllowShortLoopsOnASingleLine: false
+InsertBraces: true
 ...
