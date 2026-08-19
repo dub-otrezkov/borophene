@@ -19,6 +19,7 @@
 
 static_assert(sizeof(borophene::StringT) == 16);
 static_assert(std::is_trivially_copyable_v<borophene::StringT>);
+static_assert(!std::is_default_constructible_v<borophene::StringT>);
 static_assert(!std::is_constructible_v<borophene::StringT, const char*>);
 
 namespace {

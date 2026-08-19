@@ -36,8 +36,10 @@ class StringT {
   static constexpr Index kPrefixBytes = kPrefixLength;
   static constexpr Index kInlineBytes = kInlineLength;
 
-  constexpr StringT() noexcept : storage_{} {
-  }
+  StringT(const StringT&) noexcept = default;
+  StringT& operator=(const StringT&) noexcept = default;
+  StringT(StringT&&) noexcept = default;
+  StringT& operator=(StringT&&) noexcept = default;
 
   static Result<StringT> Create(const char* data, Index length);
   static Result<StringT> Create(const char* data);
@@ -139,6 +141,9 @@ class StringT {
     Inlined inlined_;
     Pointer pointer_;
   } storage_{};
+
+  constexpr StringT() noexcept : storage_{} {
+  }
 
   explicit StringT(Pointer pointer) noexcept : storage_{.pointer_ = pointer} {
   }
