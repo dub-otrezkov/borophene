@@ -2,72 +2,15 @@
 Checks: >
   -*,
   bugprone-*,
-  cppcoreguidelines-*,
+  clang-analyzer-*,
   modernize-*,
   performance-*,
-  readability-*,
-  misc-*,
+  portability-restrict-system-includes,
   -bugprone-easily-swappable-parameters,
-  -cppcoreguidelines-avoid-c-arrays,
-  -cppcoreguidelines-avoid-do-while,
-  -cppcoreguidelines-avoid-magic-numbers,
-  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  -cppcoreguidelines-pro-bounds-constant-array-index,
-  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
-  -cppcoreguidelines-pro-type-reinterpret-cast,
-  -cppcoreguidelines-pro-type-union-access,
-  -modernize-avoid-c-arrays,
-  -modernize-use-nodiscard,
+  -bugprone-exception-escape,
   -modernize-use-trailing-return-type,
-  -readability-identifier-length,
-  -readability-magic-numbers,
-  -readability-named-parameter,
-
-WarningsAsErrors: ""
-
-HeaderFilterRegex: ".*"
-
-CheckOptions:
-  - key: readability-identifier-naming.NamespaceCase
-    value: lower_case
-
-  - key: readability-identifier-naming.ClassCase
-    value: CamelCase
-  - key: readability-identifier-naming.StructCase
-    value: CamelCase
-  - key: readability-identifier-naming.EnumCase
-    value: CamelCase
-  - key: readability-identifier-naming.TemplateParameterCase
-    value: CamelCase
-
-  - key: readability-identifier-naming.EnumConstantCase
-    value: CamelCase
-  - key: readability-identifier-naming.EnumConstantPrefix
-    value: k
-
-  - key: readability-identifier-naming.FunctionCase
-    value: CamelCase
-  - key: readability-identifier-naming.MethodCase
-    value: CamelCase
-
-  - key: readability-identifier-naming.MemberCase
-    value: lower_case
-  - key: readability-identifier-naming.MemberSuffix
-    value: _
-
-  - key: readability-identifier-naming.VariableCase
-    value: lower_case
-  - key: readability-identifier-naming.ParameterCase
-    value: lower_case
-
-  - key: readability-identifier-naming.ConstantCase
-    value: CamelCase
-  - key: readability-identifier-naming.ConstantPrefix
-    value: k
-  - key: readability-identifier-naming.StaticConstantCase
-    value: CamelCase
-  - key: readability-identifier-naming.StaticConstantPrefix
-    value: k
-
-  - key: performance-move-const-arg.CheckTriviallyCopyableMove
-    value: "true"
+  -performance-enum-size
+WarningsAsErrors: "*"
+HeaderFilterRegex: "^.*borophene/.*"
+FormatStyle: file
+...
