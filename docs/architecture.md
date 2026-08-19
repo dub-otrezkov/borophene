@@ -21,8 +21,9 @@ common <--- data <--- execution
 ```
 
 `common` contains value-level infrastructure. `data` owns typed vectors and validates table invariants. `io` contains
-byte and CSV streams without storage-engine knowledge. `execution` only knows the data model and coordinates sources
-and sinks. `storage` depends on all three and implements the execution source/sink contracts for columnar files.
+byte-stream contracts, memory/local adapters, and schema-independent CSV logic. `execution` only knows the data model
+and coordinates sources and sinks. `storage` depends on all three and implements the execution source/sink contracts
+for the columnar format.
 
 Each module is a CMake target with public dependency propagation. The `borophene::borophene` interface target is the
 consumer entry point.
@@ -30,10 +31,11 @@ consumer entry point.
 ## Ownership and errors
 
 - `Schema`, `ColumnVector`, and `DataChunk` own their state. No process-global registry is used.
-- File readers and writers have unique ownership and deterministic close semantics.
+- File and memory adapters are owned independently from the workers that consume their virtual stream contracts.
 - A chunk passed to a sink is borrowed only for the duration of `Write`.
-- Expected input, I/O, and format failures use `Result<T>` (`std::expected<T, Error>`).
-- Exceptions are reserved for programmer errors such as requesting the wrong typed vector view.
+- Input, I/O, bounds, type, and format failures use `Result<T>` (`std::expected<T, Error>`).
+- Borophene APIs do not explicitly throw for validation or state errors; those failures use `Result`. Standard
+  allocation failures retain their normal C++ behavior.
 - End of input is `Result<std::optional<DataChunk>>` with `nullopt`, never an empty chunk or an error.
 
 ## Execution
@@ -47,12 +49,20 @@ acyclic and avoids shared mutable column state.
 
 ## Storage and CSV
 
-The CSV parser is schema-agnostic and streaming. The storage layer uses positional reads so projected column chunks can
-later be read concurrently. Metadata lives at the end of the file, allowing the writer to emit row groups in one pass
-without seeking.
+The CSV parser is schema-agnostic and depends only on sequential `InputStream`/`OutputStream` contracts. Local files and
+the reusable `MemoryStream` implement those contracts without leaking a destination type into CSV workers.
 
-The local file adapter currently targets POSIX systems. Its abstract random-access and sequential-output contracts keep
-platform-specific file handling outside the format reader and writer.
+Columnar I/O is a composition of small stages. A reader obtains payload bytes through a random-access input and passes
+them to the column codec; the codec alone validates and constructs a `ColumnVector`. In the opposite direction, the
+codec serializes a vector into bytes and metadata before the writer sends those bytes to an injected output stream.
+Readers and writers orchestrate lifecycle and row groups, while codecs do not know which file or memory backend is in
+use. This boundary is also where a future compression implementation is selected.
+
+The storage layer uses positional reads so projected column chunks can later be read concurrently. Metadata lives at
+the end of the file, allowing the writer to emit row groups in one pass without seeking.
+
+The local file adapter currently targets POSIX systems. Its abstract random-access and sequential stream contracts keep
+platform-specific file handling outside CSV, format readers, format writers, and codecs.
 
 All external bytes are validated before allocation or indexing. The v1 format uses fixed-width little-endian fields;
 it never serializes pointers, `size_t`, C++ object layouts, or platform-specific numeric types.
@@ -61,7 +71,9 @@ it never serializes pointers, `size_t`, C++ object layouts, or platform-specific
 
 - SQL parsing and logical/physical planning.
 - Filter, projection, aggregation, ordering, and join operators.
-- Compression, statistics, checksums, and predicate pushdown.
+- Built-in compression implementations, statistics, checksums, and predicate pushdown. The codec contract already
+  isolates the compression boundary; the built-in v1 codec currently implements only `kNone`, while the format
+  reserves `kZstd` for an injected encoder/factory pair.
 - Schema inference and typed CSV import policy.
 - Memory mapping, object-storage backends, and parallel ingestion.
 - Additional logical types beyond `INT32` and `STRING`.

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <utility>
 #include <vector>
 
@@ -12,19 +13,20 @@ namespace borophene {
 
 class DataChunk {
  public:
-  static Result<DataChunk> Create(const Schema& schema, std::vector<ColumnVector> columns);
+  static Result<DataChunk> Create(const Schema& schema, std::vector<ColumnVector>&& columns);
 
   const std::vector<ColumnVector>& Columns() const noexcept {
     return columns_;
   }
 
-  const ColumnVector& Column(Index index) const;
+  Result<std::reference_wrapper<const ColumnVector>> Column(Index index) const;
   Index RowCount() const noexcept {
     return row_count_;
   }
 
  private:
-  DataChunk(std::vector<ColumnVector> columns, Index row_count) : columns_(std::move(columns)), row_count_(row_count) {
+  DataChunk(std::vector<ColumnVector>&& columns, Index row_count)
+      : columns_(std::move(columns)), row_count_(row_count) {
   }
 
   std::vector<ColumnVector> columns_;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -21,7 +22,7 @@ struct Field {
 
 class Schema {
  public:
-  static Result<Schema> Create(std::vector<Field> fields);
+  static Result<Schema> Create(std::vector<Field>&& fields);
 
   const std::vector<Field>& Fields() const noexcept {
     return fields_;
@@ -31,13 +32,13 @@ class Schema {
     return fields_.size();
   }
 
-  const Field& operator[](Index index) const;
+  Result<std::reference_wrapper<const Field>> FieldAt(Index index) const;
   Result<Index> Find(std::string_view name) const;
 
   bool operator==(const Schema&) const = default;
 
  private:
-  explicit Schema(std::vector<Field> fields) : fields_(std::move(fields)) {
+  explicit Schema(std::vector<Field>&& fields) : fields_(std::move(fields)) {
   }
 
   std::vector<Field> fields_;

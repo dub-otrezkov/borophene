@@ -1,7 +1,5 @@
 #include "borophene/storage/columnar_writer.hpp"
 
-#include <algorithm>
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -13,7 +11,13 @@
 namespace borophene::storage {
 namespace {
 
-using Buffer = std::vector<std::byte>;
+using Buffer = std::vector<Byte>;
+
+constexpr ui64 kMetadataHeaderSize = sizeof(ui32) + sizeof(ui32) + sizeof(ui64);
+constexpr ui64 kFieldMetadataFixedSize = sizeof(ui32) + sizeof(ui8) + sizeof(ui8) + sizeof(ui16);
+constexpr ui64 kRowGroupMetadataFixedSize = sizeof(ui64) + sizeof(ui32) + sizeof(ui32);
+constexpr ui64 kChunkMetadataSize =
+    sizeof(ui64) + sizeof(ui64) + sizeof(ui64) + sizeof(ui32) + sizeof(ui8) + sizeof(ui8) + sizeof(ui16);
 
 Error InvalidState(std::string message) {
   return {ErrorCode::kInvalidState, std::move(message)};
@@ -23,206 +27,214 @@ Error InvalidArgument(std::string message) {
   return {ErrorCode::kInvalidArgument, std::move(message)};
 }
 
-void AppendU8(Buffer& output, std::uint8_t value) {
-  output.push_back(static_cast<std::byte>(value));
+Result<ui64> AddMetadataSize(ui64 current, ui64 increment) {
+  if (current > kColumnarMaxMetadataSize || increment > kColumnarMaxMetadataSize - current) {
+    return Failure<ui64>(ErrorCode::kInvalidArgument, "metadata exceeds the format limit");
+  }
+  return current + increment;
 }
 
-void AppendU16(Buffer& output, std::uint16_t value) {
-  AppendU8(output, static_cast<std::uint8_t>(value));
-  AppendU8(output, static_cast<std::uint8_t>(value >> 8U));
+Result<ui64> InitialMetadataSize(const Schema& schema) {
+  ui64 size = kMetadataHeaderSize;
+  for (const Field& field : schema.Fields()) {
+    auto with_fixed = AddMetadataSize(size, kFieldMetadataFixedSize);
+    if (!with_fixed) {
+      return MakeUnexpected(std::move(with_fixed.error()));
+    }
+    auto with_name = AddMetadataSize(*with_fixed, field.name.size());
+    if (!with_name) {
+      return MakeUnexpected(std::move(with_name.error()));
+    }
+    size = *with_name;
+  }
+  return size;
 }
 
-void AppendU32(Buffer& output, std::uint32_t value) {
+Result<ui64> AddRowGroupMetadataSize(ui64 current, Index column_count) {
+  if (column_count > (kColumnarMaxMetadataSize - kRowGroupMetadataFixedSize) / kChunkMetadataSize) {
+    return Failure<ui64>(ErrorCode::kInvalidArgument, "row-group metadata exceeds the format limit");
+  }
+  return AddMetadataSize(current, kRowGroupMetadataFixedSize + column_count * kChunkMetadataSize);
+}
+
+Result<void> WriteBytes(io::OutputStream& output, std::span<const Byte> bytes) {
+  const ui64 position = output.Position();
+  if (bytes.size() > std::numeric_limits<ui64>::max() - position) {
+    return Failure<void>(ErrorCode::kOutOfRange, "output position overflows while writing columnar data");
+  }
+  auto write = output.Write(bytes);
+  if (!write) {
+    return MakeUnexpected(std::move(write.error()));
+  }
+  if (output.Position() != position + bytes.size()) {
+    return Failure<void>(ErrorCode::kIo, "output stream did not advance by the written byte count");
+  }
+  return {};
+}
+
+Result<ui32> ValidateSourceColumn(const ColumnVector& column, const Field& field) {
+  if (column.Type() != field.type) {
+    return Failure<ui32>(ErrorCode::kSchemaMismatch, "row-group column type does not match the writer schema");
+  }
+  const Index null_count = column.Validity().NullCount();
+  if (column.Validity().Size() != column.Size() || null_count > std::numeric_limits<ui32>::max()) {
+    return Failure<ui32>(ErrorCode::kInvalidArgument, "source column has invalid validity metadata");
+  }
+  if (!field.nullable && null_count != 0) {
+    return Failure<ui32>(ErrorCode::kSchemaMismatch, "a non-nullable source column contains null values");
+  }
+  return static_cast<ui32>(null_count);
+}
+
+Result<void> ValidateSerializedColumn(const SerializedColumn& serialized, const ColumnVector& column,
+                                      const Field& field, ui32 expected_null_count) {
+  if (serialized.null_count != expected_null_count) {
+    return Failure<void>(ErrorCode::kInvalidArgument, "column encoder returned an invalid null count");
+  }
+  if (!field.nullable && serialized.null_count != 0) {
+    return Failure<void>(ErrorCode::kSchemaMismatch, "column encoder returned nulls for a non-nullable field");
+  }
+  if (serialized.bytes.size() > kColumnarMaxChunkSize || serialized.decoded_size > kColumnarMaxChunkSize) {
+    return Failure<void>(ErrorCode::kInvalidArgument, "column encoder returned a chunk that exceeds the format limit");
+  }
+  if (serialized.encoding != ColumnEncoding::kPlain) {
+    return Failure<void>(ErrorCode::kUnsupportedVersion, "column encoder returned an unsupported encoding");
+  }
+  if (serialized.compression != ColumnCompression::kNone && serialized.compression != ColumnCompression::kZstd) {
+    return Failure<void>(ErrorCode::kUnsupportedVersion, "column encoder returned an unsupported compression");
+  }
+  if (serialized.compression == ColumnCompression::kNone && serialized.decoded_size != serialized.bytes.size()) {
+    return Failure<void>(ErrorCode::kInvalidArgument, "uncompressed column size does not match its decoded size");
+  }
+
+  const ui64 bitmap_size = expected_null_count == 0 ? 0 : ValidityBitmapSize(column.Size());
+  const ui64 value_count = field.type == LogicalType::kString ? column.Size() + 1U : column.Size();
+  if (value_count > (std::numeric_limits<ui64>::max() - bitmap_size) / sizeof(ui32)) {
+    return Failure<void>(ErrorCode::kInvalidArgument, "column encoder returned an overflowing decoded size");
+  }
+  const ui64 minimum_size = bitmap_size + value_count * sizeof(ui32);
+  if ((field.type == LogicalType::kInt32 && serialized.decoded_size != minimum_size) ||
+      (field.type == LogicalType::kString && serialized.decoded_size < minimum_size)) {
+    return Failure<void>(ErrorCode::kInvalidArgument, "column encoder returned an invalid decoded size");
+  }
+  return {};
+}
+
+void AppendU8(Buffer& output, ui8 value) {
+  output.push_back(static_cast<Byte>(value));
+}
+
+void AppendU16(Buffer& output, ui16 value) {
+  AppendU8(output, static_cast<ui8>(value));
+  AppendU8(output, static_cast<ui8>(value >> 8U));
+}
+
+void AppendU32(Buffer& output, ui32 value) {
   for (unsigned int shift = 0; shift < 32U; shift += 8U) {
-    AppendU8(output, static_cast<std::uint8_t>(value >> shift));
+    AppendU8(output, static_cast<ui8>(value >> shift));
   }
 }
 
-void AppendU64(Buffer& output, std::uint64_t value) {
+void AppendU64(Buffer& output, ui64 value) {
   for (unsigned int shift = 0; shift < 64U; shift += 8U) {
-    AppendU8(output, static_cast<std::uint8_t>(value >> shift));
+    AppendU8(output, static_cast<ui8>(value >> shift));
   }
 }
 
 void AppendMagic(Buffer& output, const std::array<char, 8>& magic) {
   for (const char value : magic) {
-    AppendU8(output, static_cast<std::uint8_t>(value));
+    AppendU8(output, static_cast<ui8>(value));
   }
 }
 
-Result<Buffer> EncodeColumn(const ColumnVector& column, const Field& field) {
-  if (column.Type() != field.type) {
-    return std::unexpected(Error(ErrorCode::kSchemaMismatch, "row-group column type does not match the writer schema"));
-  }
-  if (column.Validity().Size() != column.Size()) {
-    return std::unexpected(InvalidArgument("column validity size mismatch"));
-  }
-  if (!field.nullable && column.Validity().NullCount() != 0) {
-    return std::unexpected(Error(ErrorCode::kSchemaMismatch, "a non-nullable column contains null values"));
-  }
-  if (column.Validity().NullCount() > std::numeric_limits<std::uint32_t>::max()) {
-    return std::unexpected(InvalidArgument("column has too many null values"));
+Result<Buffer> EncodeMetadata(const Schema& schema, const std::vector<RowGroupMetadata>& row_groups, Index total_rows,
+                              ui64 expected_size) {
+  if (schema.Size() > std::numeric_limits<ui32>::max() || row_groups.size() > std::numeric_limits<ui32>::max()) {
+    return MakeUnexpected(InvalidArgument("metadata count exceeds format limit"));
   }
 
   Buffer output;
-  const Index row_count = column.Size();
-  if (column.Validity().NullCount() != 0) {
-    const std::uint64_t bitmap_size = ValidityBitmapSize(row_count);
-    if (bitmap_size > output.max_size()) {
-      return std::unexpected(InvalidArgument("validity bitmap is too large"));
-    }
-    output.resize(static_cast<std::size_t>(bitmap_size));
-    for (Index row = 0; row < row_count; ++row) {
-      if (column.Validity().IsValid(row)) {
-        const auto bit = static_cast<std::uint8_t>(1U << (row % 8U));
-        output[static_cast<std::size_t>(row / 8U)] |= static_cast<std::byte>(bit);
-      }
-    }
-  }
-
-  if (field.type == LogicalType::kInt32) {
-    const auto& values = column.Int32Values();
-    if (values.size() != row_count || row_count > (output.max_size() - output.size()) / sizeof(std::int32_t)) {
-      return std::unexpected(InvalidArgument("int32 column is too large"));
-    }
-    output.reserve(output.size() + values.size() * sizeof(std::int32_t));
-    for (Index row = 0; row < row_count; ++row) {
-      const std::int32_t value = column.Validity().IsValid(row) ? values[static_cast<std::size_t>(row)] : 0;
-      AppendU32(output, std::bit_cast<std::uint32_t>(value));
-    }
-    return output;
-  }
-
-  if (field.type != LogicalType::kString) {
-    return std::unexpected(InvalidArgument("unsupported logical type"));
-  }
-
-  const auto& values = column.StringValues();
-  if (values.size() != row_count || row_count == std::numeric_limits<std::uint32_t>::max()) {
-    return std::unexpected(InvalidArgument("string column is too large"));
-  }
-
-  const std::uint64_t offset_count = row_count + 1U;
-  if (offset_count > (output.max_size() - output.size()) / sizeof(std::uint32_t)) {
-    return std::unexpected(InvalidArgument("string offset table is too large"));
-  }
-
-  std::vector<std::uint32_t> offsets;
-  offsets.reserve(static_cast<std::size_t>(offset_count));
-  offsets.push_back(0);
-  std::uint64_t byte_count = 0;
-  for (Index row = 0; row < row_count; ++row) {
-    if (column.Validity().IsValid(row)) {
-      const auto& value = values[static_cast<std::size_t>(row)];
-      if (value.size() > std::numeric_limits<std::uint32_t>::max() - byte_count) {
-        return std::unexpected(InvalidArgument("string data exceeds the format limit"));
-      }
-      byte_count += value.size();
-    }
-    offsets.push_back(static_cast<std::uint32_t>(byte_count));
-  }
-
-  const std::uint64_t offset_bytes = offset_count * sizeof(std::uint32_t);
-  if (byte_count > output.max_size() - output.size() - offset_bytes) {
-    return std::unexpected(InvalidArgument("string column is too large"));
-  }
-  output.reserve(output.size() + static_cast<std::size_t>(offset_bytes + byte_count));
-  for (const std::uint32_t offset : offsets) {
-    AppendU32(output, offset);
-  }
-  for (Index row = 0; row < row_count; ++row) {
-    if (!column.Validity().IsValid(row)) {
-      continue;
-    }
-    const auto& value = values[static_cast<std::size_t>(row)];
-    for (const char byte : value) {
-      AppendU8(output, static_cast<std::uint8_t>(byte));
-    }
-  }
-  return output;
-}
-
-Result<Buffer> EncodeMetadata(const Schema& schema, const std::vector<RowGroupMetadata>& row_groups, Index total_rows) {
-  if (schema.Size() > std::numeric_limits<std::uint32_t>::max() ||
-      row_groups.size() > std::numeric_limits<std::uint32_t>::max()) {
-    return std::unexpected(InvalidArgument("metadata count exceeds format limit"));
-  }
-
-  Buffer output;
-  AppendU32(output, static_cast<std::uint32_t>(schema.Size()));
-  AppendU32(output, static_cast<std::uint32_t>(row_groups.size()));
+  output.reserve(static_cast<std::size_t>(expected_size));
+  AppendU32(output, static_cast<ui32>(schema.Size()));
+  AppendU32(output, static_cast<ui32>(row_groups.size()));
   AppendU64(output, total_rows);
 
   for (const Field& field : schema.Fields()) {
-    if (field.name.size() > std::numeric_limits<std::uint32_t>::max()) {
-      return std::unexpected(InvalidArgument("field name exceeds format limit"));
+    if (field.name.size() > std::numeric_limits<ui32>::max()) {
+      return MakeUnexpected(InvalidArgument("field name exceeds format limit"));
     }
-    AppendU32(output, static_cast<std::uint32_t>(field.name.size()));
+    AppendU32(output, static_cast<ui32>(field.name.size()));
     for (const char byte : field.name) {
-      AppendU8(output, static_cast<std::uint8_t>(byte));
+      AppendU8(output, static_cast<ui8>(byte));
     }
-    AppendU8(output, static_cast<std::uint8_t>(field.type));
+    AppendU8(output, static_cast<ui8>(field.type));
     AppendU8(output, field.nullable ? 1U : 0U);
     AppendU16(output, 0);
   }
 
   for (const RowGroupMetadata& group : row_groups) {
-    if (group.chunks.size() > std::numeric_limits<std::uint32_t>::max()) {
-      return std::unexpected(InvalidArgument("chunk count exceeds format limit"));
+    if (group.chunks.size() > std::numeric_limits<ui32>::max()) {
+      return MakeUnexpected(InvalidArgument("chunk count exceeds format limit"));
     }
     AppendU64(output, group.first_row);
     AppendU32(output, group.row_count);
-    AppendU32(output, static_cast<std::uint32_t>(group.chunks.size()));
+    AppendU32(output, static_cast<ui32>(group.chunks.size()));
     for (const ColumnChunkMetadata& chunk : group.chunks) {
       AppendU64(output, chunk.offset);
       AppendU64(output, chunk.stored_size);
       AppendU64(output, chunk.decoded_size);
       AppendU32(output, chunk.null_count);
-      AppendU8(output, static_cast<std::uint8_t>(chunk.encoding));
-      AppendU8(output, static_cast<std::uint8_t>(chunk.compression));
+      AppendU8(output, static_cast<ui8>(chunk.encoding));
+      AppendU8(output, static_cast<ui8>(chunk.compression));
       AppendU16(output, chunk.flags);
     }
+  }
+  if (output.size() != expected_size) {
+    return Failure<Buffer>(ErrorCode::kInvalidState, "metadata size tracking disagrees with serialized metadata");
   }
   return output;
 }
 
 }  // namespace
 
-ColumnarWriter::ColumnarWriter(std::unique_ptr<io::OutputFile> file) noexcept : file_(std::move(file)) {
+ColumnarWriter::ColumnarWriter(std::unique_ptr<io::OutputStream> output,
+                               std::shared_ptr<const ColumnEncoder> encoder) noexcept
+    : output_(std::move(output)), encoder_(std::move(encoder)) {
 }
 
-Result<ColumnarWriter> ColumnarWriter::Create(std::unique_ptr<io::OutputFile> file) {
-  if (file == nullptr) {
-    return std::unexpected(InvalidArgument("output file must not be null"));
+Result<ColumnarWriter> ColumnarWriter::Create(std::unique_ptr<io::OutputStream> output,
+                                              std::shared_ptr<const ColumnEncoder> encoder) {
+  if (output == nullptr) {
+    return MakeUnexpected(InvalidArgument("output stream must not be null"));
   }
-  return ColumnarWriter(std::move(file));
-}
-
-Result<ColumnarWriter> ColumnarWriter::Create(const std::filesystem::path& path) {
-  auto file = io::CreateLocalOutput(path);
-  if (!file) {
-    return std::unexpected(std::move(file.error()));
+  if (encoder == nullptr) {
+    return MakeUnexpected(InvalidArgument("column encoder must not be null"));
   }
-  return Create(std::move(*file));
+  return ColumnarWriter(std::move(output), std::move(encoder));
 }
 
 Result<void> ColumnarWriter::Begin(const Schema& schema) {
   if (state_ != State::kCreated) {
-    return std::unexpected(InvalidState("writer has already been started"));
+    return MakeUnexpected(InvalidState("writer has already been started"));
   }
-  if (file_->Position() != 0) {
-    return std::unexpected(InvalidArgument("output file must be empty"));
+  if (output_->Position() != 0) {
+    return MakeUnexpected(InvalidArgument("output stream must start at position zero"));
   }
   if (schema.Size() > kColumnarMaxFieldCount) {
-    return std::unexpected(InvalidArgument("schema has too many fields"));
+    return MakeUnexpected(InvalidArgument("schema has too many fields"));
   }
   for (const Field& field : schema.Fields()) {
     if (field.name.size() > kColumnarMaxFieldNameSize) {
-      return std::unexpected(InvalidArgument("field name exceeds the format limit"));
+      return MakeUnexpected(InvalidArgument("field name exceeds the format limit"));
     }
     if (field.type != LogicalType::kInt32 && field.type != LogicalType::kString) {
-      return std::unexpected(InvalidArgument("schema contains an unsupported logical type"));
+      return MakeUnexpected(InvalidArgument("schema contains an unsupported logical type"));
     }
+  }
+
+  auto metadata_size = InitialMetadataSize(schema);
+  if (!metadata_size) {
+    return MakeUnexpected(std::move(metadata_size.error()));
   }
 
   Buffer header;
@@ -232,12 +244,13 @@ Result<void> ColumnarWriter::Begin(const Schema& schema) {
   AppendU16(header, kColumnarFormatMinor);
   AppendU32(header, kColumnarFormatFlags);
 
-  auto write = file_->Write(header);
+  auto write = WriteBytes(*output_, header);
   if (!write) {
     state_ = State::kFailed;
-    return std::unexpected(std::move(write.error()));
+    return MakeUnexpected(std::move(write.error()));
   }
   schema_ = schema;
+  metadata_size_ = *metadata_size;
   state_ = State::kBegun;
   return {};
 }
@@ -248,92 +261,110 @@ Result<void> ColumnarWriter::Write(const DataChunk& chunk) {
 
 Result<void> ColumnarWriter::WriteRowGroup(const DataChunk& chunk) {
   if (state_ != State::kBegun) {
-    return std::unexpected(InvalidState("writer must be begun and unfinished"));
+    return MakeUnexpected(InvalidState("writer must be begun and unfinished"));
   }
   if (!schema_.has_value()) {
-    return std::unexpected(InvalidState("writer schema is unavailable"));
+    return MakeUnexpected(InvalidState("writer schema is unavailable"));
   }
   if (chunk.RowCount() == 0) {
-    return std::unexpected(InvalidArgument("empty row groups are not allowed"));
+    return MakeUnexpected(InvalidArgument("empty row groups are not allowed"));
   }
-  if (chunk.RowCount() > std::numeric_limits<std::uint32_t>::max()) {
-    return std::unexpected(InvalidArgument("row group exceeds format limit"));
+  if (chunk.RowCount() > std::numeric_limits<ui32>::max()) {
+    return MakeUnexpected(InvalidArgument("row group exceeds format limit"));
   }
   if (chunk.Columns().size() != schema_->Size()) {
-    return std::unexpected(
-        Error(ErrorCode::kSchemaMismatch, "row-group column count does not match the writer schema"));
+    return MakeUnexpected(Error(ErrorCode::kSchemaMismatch, "row-group column count does not match the writer schema"));
   }
   if (row_groups_.size() == kColumnarMaxRowGroupCount) {
-    return std::unexpected(InvalidArgument("too many row groups"));
+    return MakeUnexpected(InvalidArgument("too many row groups"));
   }
   if (chunk.RowCount() > std::numeric_limits<Index>::max() - total_rows_) {
-    return std::unexpected(InvalidArgument("total row count overflow"));
+    return MakeUnexpected(InvalidArgument("total row count overflow"));
+  }
+  auto next_metadata_size = AddRowGroupMetadataSize(metadata_size_, schema_->Size());
+  if (!next_metadata_size) {
+    return MakeUnexpected(std::move(next_metadata_size.error()));
   }
 
-  std::vector<Buffer> encoded_columns;
-  encoded_columns.reserve(chunk.Columns().size());
+  std::vector<SerializedColumn> serialized_columns;
+  serialized_columns.reserve(chunk.Columns().size());
   for (Index index = 0; index < schema_->Size(); ++index) {
-    auto encoded = EncodeColumn(chunk.Column(index), (*schema_)[index]);
-    if (!encoded) {
-      return std::unexpected(std::move(encoded.error()));
+    auto column = chunk.Column(index);
+    if (!column) {
+      return MakeUnexpected(std::move(column.error()));
     }
-    if (encoded->size() > kColumnarMaxChunkSize) {
-      return std::unexpected(InvalidArgument("encoded column chunk exceeds the format limit"));
+    auto field = schema_->FieldAt(index);
+    if (!field) {
+      return MakeUnexpected(std::move(field.error()));
     }
-    encoded_columns.push_back(std::move(*encoded));
+    auto expected_null_count = ValidateSourceColumn(column->get(), field->get());
+    if (!expected_null_count) {
+      return MakeUnexpected(std::move(expected_null_count.error()));
+    }
+    auto serialized = encoder_->Serialize(column->get(), field->get());
+    if (!serialized) {
+      return MakeUnexpected(std::move(serialized.error()));
+    }
+    auto validation = ValidateSerializedColumn(*serialized, column->get(), field->get(), *expected_null_count);
+    if (!validation) {
+      return MakeUnexpected(std::move(validation.error()));
+    }
+    serialized_columns.push_back(std::move(*serialized));
   }
 
   RowGroupMetadata group;
   group.first_row = total_rows_;
-  group.row_count = static_cast<std::uint32_t>(chunk.RowCount());
-  group.chunks.reserve(encoded_columns.size());
-  for (std::size_t index = 0; index < encoded_columns.size(); ++index) {
-    const Buffer& encoded = encoded_columns[index];
+  group.row_count = static_cast<ui32>(chunk.RowCount());
+  group.chunks.reserve(serialized_columns.size());
+  for (const SerializedColumn& serialized : serialized_columns) {
     ColumnChunkMetadata metadata;
-    metadata.offset = file_->Position();
-    metadata.stored_size = encoded.size();
-    metadata.decoded_size = encoded.size();
-    metadata.null_count = static_cast<std::uint32_t>(chunk.Column(index).Validity().NullCount());
+    metadata.offset = output_->Position();
+    metadata.stored_size = serialized.bytes.size();
+    metadata.decoded_size = serialized.decoded_size;
+    metadata.null_count = serialized.null_count;
+    metadata.encoding = serialized.encoding;
+    metadata.compression = serialized.compression;
 
-    auto write = file_->Write(encoded);
+    auto write = WriteBytes(*output_, serialized.bytes);
     if (!write) {
       state_ = State::kFailed;
-      return std::unexpected(std::move(write.error()));
+      return MakeUnexpected(std::move(write.error()));
     }
     group.chunks.push_back(metadata);
   }
 
   row_groups_.push_back(std::move(group));
   total_rows_ += chunk.RowCount();
+  metadata_size_ = *next_metadata_size;
   return {};
 }
 
 Result<void> ColumnarWriter::Finish() {
   if (state_ != State::kBegun) {
-    return std::unexpected(InvalidState("writer must be begun and unfinished"));
+    return MakeUnexpected(InvalidState("writer must be begun and unfinished"));
   }
   if (!schema_.has_value()) {
-    return std::unexpected(InvalidState("writer schema is unavailable"));
+    return MakeUnexpected(InvalidState("writer schema is unavailable"));
   }
 
-  auto metadata = EncodeMetadata(*schema_, row_groups_, total_rows_);
+  auto metadata = EncodeMetadata(*schema_, row_groups_, total_rows_, metadata_size_);
   if (!metadata) {
-    return std::unexpected(std::move(metadata.error()));
+    return MakeUnexpected(std::move(metadata.error()));
   }
   if (metadata->size() > kColumnarMaxMetadataSize) {
-    return std::unexpected(InvalidArgument("metadata exceeds the format limit"));
+    return MakeUnexpected(InvalidArgument("metadata exceeds the format limit"));
   }
-  const std::uint64_t metadata_offset = file_->Position();
-  if (metadata_offset > std::numeric_limits<std::uint64_t>::max() - kColumnarTrailerSize ||
-      metadata->size() > std::numeric_limits<std::uint64_t>::max() - metadata_offset - kColumnarTrailerSize) {
-    return std::unexpected(InvalidArgument("file size overflow"));
+  const ui64 metadata_offset = output_->Position();
+  if (metadata_offset > std::numeric_limits<ui64>::max() - kColumnarTrailerSize ||
+      metadata->size() > std::numeric_limits<ui64>::max() - metadata_offset - kColumnarTrailerSize) {
+    return MakeUnexpected(InvalidArgument("file size overflow"));
   }
-  const std::uint64_t file_size = metadata_offset + metadata->size() + kColumnarTrailerSize;
+  const ui64 file_size = metadata_offset + metadata->size() + kColumnarTrailerSize;
 
-  auto write_metadata = file_->Write(*metadata);
+  auto write_metadata = WriteBytes(*output_, *metadata);
   if (!write_metadata) {
     state_ = State::kFailed;
-    return std::unexpected(std::move(write_metadata.error()));
+    return MakeUnexpected(std::move(write_metadata.error()));
   }
 
   Buffer trailer;
@@ -345,16 +376,16 @@ Result<void> ColumnarWriter::Finish() {
   AppendU64(trailer, metadata_offset);
   AppendU64(trailer, metadata->size());
   AppendU64(trailer, file_size);
-  auto write_trailer = file_->Write(trailer);
+  auto write_trailer = WriteBytes(*output_, trailer);
   if (!write_trailer) {
     state_ = State::kFailed;
-    return std::unexpected(std::move(write_trailer.error()));
+    return MakeUnexpected(std::move(write_trailer.error()));
   }
 
-  auto flush = file_->Flush();
+  auto flush = output_->Flush();
   if (!flush) {
     state_ = State::kFailed;
-    return std::unexpected(std::move(flush.error()));
+    return MakeUnexpected(std::move(flush.error()));
   }
   state_ = State::kFinished;
   return {};

@@ -1,12 +1,11 @@
 #include "borophene/data/schema.hpp"
 
-#include <stdexcept>
 #include <unordered_set>
 #include <utility>
 
 namespace borophene {
 
-Result<Schema> Schema::Create(std::vector<Field> fields) {
+Result<Schema> Schema::Create(std::vector<Field>&& fields) {
   if (fields.empty()) {
     return Failure<Schema>(ErrorCode::kInvalidArgument, "a schema must contain at least one field");
   }
@@ -28,11 +27,11 @@ Result<Schema> Schema::Create(std::vector<Field> fields) {
   return Schema(std::move(fields));
 }
 
-const Field& Schema::operator[](Index index) const {
+Result<std::reference_wrapper<const Field>> Schema::FieldAt(Index index) const {
   if (index >= fields_.size()) {
-    throw std::out_of_range("schema field index is out of range");
+    return Failure<std::reference_wrapper<const Field>>(ErrorCode::kOutOfRange, "schema field index is out of range");
   }
-  return fields_[index];
+  return std::cref(fields_[index]);
 }
 
 Result<Index> Schema::Find(std::string_view name) const {

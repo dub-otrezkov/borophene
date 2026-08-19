@@ -26,6 +26,7 @@ add_library(borophene::execution ALIAS borophene_execution)
 
 borophene_add_library(
   borophene_storage
+  storage/column_codec.cpp
   storage/columnar_format.cpp
   storage/columnar_reader.cpp
   storage/columnar_writer.cpp

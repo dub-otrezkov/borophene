@@ -1,13 +1,13 @@
 #pragma once
 
-#include <cstdint>
 #include <string_view>
 
 #include "borophene/common/result.hpp"
+#include "borophene/common/types.hpp"
 
 namespace borophene {
 
-enum class LogicalType : std::uint8_t {
+enum class LogicalType : ui8 {
   kInt32 = 1,
   kString = 2,
 };

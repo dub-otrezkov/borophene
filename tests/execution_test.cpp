@@ -1,4 +1,3 @@
-#include <cstdint>
 #include <iostream>
 #include <optional>
 #include <string_view>
@@ -22,9 +21,11 @@ using borophene::DataChunk;
 using borophene::ErrorCode;
 using borophene::Failure;
 using borophene::Field;
+using borophene::i32;
 using borophene::LogicalType;
 using borophene::Result;
 using borophene::Schema;
+using borophene::ui64;
 
 int failures = 0;
 
@@ -40,7 +41,7 @@ Schema MakeSchema() {
   return Schema::Create({Field{.name = "id", .type = LogicalType::kInt32, .nullable = false}}).value();
 }
 
-DataChunk MakeChunk(std::vector<std::int32_t> values) {
+DataChunk MakeChunk(std::vector<i32> values) {
   auto column = ColumnVector::CreateInt32(std::move(values)).value();
   return DataChunk::Create(MakeSchema(), {std::move(column)}).value();
 }
@@ -128,14 +129,14 @@ class FakeSink final : public borophene::execution::ChunkSink {
   std::size_t Writes() const noexcept {
     return writes_;
   }
-  std::uint64_t Rows() const noexcept {
+  ui64 Rows() const noexcept {
     return rows_;
   }
 
  private:
   FailurePoint failure_;
   std::size_t writes_ = 0;
-  std::uint64_t rows_ = 0;
+  ui64 rows_ = 0;
   bool began_ = false;
   bool finished_ = false;
   bool schema_matches_ = false;

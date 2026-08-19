@@ -8,45 +8,46 @@
 
 namespace borophene::storage {
 
-inline constexpr std::uint16_t kColumnarFormatMajor = 1;
-inline constexpr std::uint16_t kColumnarFormatMinor = 0;
-inline constexpr std::uint32_t kColumnarFormatFlags = 0;
-inline constexpr std::uint64_t kColumnarHeaderSize = 16;
-inline constexpr std::uint64_t kColumnarTrailerSize = 40;
-inline constexpr std::uint32_t kColumnarMaxFieldCount = 16U * 1024U;
-inline constexpr std::uint32_t kColumnarMaxRowGroupCount = 1'000'000U;
-inline constexpr std::uint32_t kColumnarMaxFieldNameSize = 1024U * 1024U;
-inline constexpr std::uint64_t kColumnarMaxMetadataSize = 256ULL * 1024ULL * 1024ULL;
-inline constexpr std::uint64_t kColumnarMaxChunkSize = 1024ULL * 1024ULL * 1024ULL;
+inline constexpr ui16 kColumnarFormatMajor = 1;
+inline constexpr ui16 kColumnarFormatMinor = 0;
+inline constexpr ui32 kColumnarFormatFlags = 0;
+inline constexpr ui64 kColumnarHeaderSize = 16;
+inline constexpr ui64 kColumnarTrailerSize = 40;
+inline constexpr ui32 kColumnarMaxFieldCount = 16U * 1024U;
+inline constexpr ui32 kColumnarMaxRowGroupCount = 1'000'000U;
+inline constexpr ui32 kColumnarMaxFieldNameSize = 1024U * 1024U;
+inline constexpr ui64 kColumnarMaxMetadataSize = 256ULL * 1024ULL * 1024ULL;
+inline constexpr ui64 kColumnarMaxChunkSize = 1024ULL * 1024ULL * 1024ULL;
 
 extern const std::array<char, 8> kColumnarHeaderMagic;
 extern const std::array<char, 8> kColumnarTrailerMagic;
 
-enum class ColumnEncoding : std::uint8_t {
+enum class ColumnEncoding : ui8 {
   kPlain = 0,
 };
 
-enum class ColumnCompression : std::uint8_t {
+enum class ColumnCompression : ui8 {
   kNone = 0,
+  kZstd = 1,
 };
 
 struct ColumnChunkMetadata {
-  std::uint64_t offset = 0;
-  std::uint64_t stored_size = 0;
-  std::uint64_t decoded_size = 0;
-  std::uint32_t null_count = 0;
+  ui64 offset = 0;
+  ui64 stored_size = 0;
+  ui64 decoded_size = 0;
+  ui32 null_count = 0;
   ColumnEncoding encoding = ColumnEncoding::kPlain;
   ColumnCompression compression = ColumnCompression::kNone;
-  std::uint16_t flags = 0;
+  ui16 flags = 0;
 };
 
 struct RowGroupMetadata {
   Index first_row = 0;
-  std::uint32_t row_count = 0;
+  ui32 row_count = 0;
   std::vector<ColumnChunkMetadata> chunks;
 };
 
-constexpr std::uint64_t ValidityBitmapSize(std::uint64_t row_count) noexcept {
+constexpr ui64 ValidityBitmapSize(ui64 row_count) noexcept {
   return (row_count / 8U) + (row_count % 8U != 0U ? 1U : 0U);
 }
 

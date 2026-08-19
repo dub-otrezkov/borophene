@@ -1,15 +1,20 @@
 #include "borophene/io/csv_writer.hpp"
 
-#include <algorithm>
-#include <ios>
+#include <array>
 #include <limits>
-#include <ostream>
 #include <span>
-#include <string>
 #include <string_view>
+#include <utility>
 
 namespace borophene::io {
 namespace {
+
+// A quote inside a quoted field is doubled, adding one encoded byte.
+constexpr std::size_t kEscapedQuoteExtraBytes = 1;
+// A quoted field adds one opening and one closing quote.
+constexpr std::size_t kSurroundingQuoteBytes = 2;
+// Every field after the first contributes one delimiter.
+constexpr std::size_t kDelimiterBytes = 1;
 
 Result<void> ValidateOptions(const CsvOptions& options) {
   if (options.delimiter == options.quote) {
@@ -25,15 +30,6 @@ Result<void> ValidateOptions(const CsvOptions& options) {
     return Failure<void>(ErrorCode::kInvalidArgument, "CSV field limit must be greater than zero");
   }
   return {};
-}
-
-Result<void> StreamFailure(std::string_view detail = {}) {
-  std::string message = "cannot write CSV row";
-  if (!detail.empty()) {
-    message += ": ";
-    message += detail;
-  }
-  return Failure<void>(ErrorCode::kIo, std::move(message));
 }
 
 bool NeedsQuotes(std::string_view field, const CsvOptions& options) noexcept {
@@ -57,11 +53,11 @@ Result<std::size_t> EncodedFieldSize(std::string_view field, const CsvOptions& o
 
   std::size_t encoded_size = field.size();
   for (const char character : field) {
-    if (character == options.quote && !CheckedAdd(1, encoded_size)) {
+    if (character == options.quote && !CheckedAdd(kEscapedQuoteExtraBytes, encoded_size)) {
       return Failure<std::size_t>(ErrorCode::kOutOfRange, "encoded CSV field size exceeds the addressable range");
     }
   }
-  if (!CheckedAdd(2, encoded_size)) {
+  if (!CheckedAdd(kSurroundingQuoteBytes, encoded_size)) {
     return Failure<std::size_t>(ErrorCode::kOutOfRange, "encoded CSV field size exceeds the addressable range");
   }
   return encoded_size;
@@ -70,12 +66,12 @@ Result<std::size_t> EncodedFieldSize(std::string_view field, const CsvOptions& o
 Result<std::size_t> EncodedRecordSize(std::span<const std::string_view> fields, const CsvOptions& options) {
   std::size_t encoded_size = 0;
   for (std::size_t index = 0; index < fields.size(); ++index) {
-    if (index != 0 && !CheckedAdd(1, encoded_size)) {
+    if (index != 0 && !CheckedAdd(kDelimiterBytes, encoded_size)) {
       return Failure<std::size_t>(ErrorCode::kOutOfRange, "encoded CSV record size exceeds the addressable range");
     }
     auto field_size = EncodedFieldSize(fields[index], options);
     if (!field_size) {
-      return std::unexpected(field_size.error());
+      return MakeUnexpected(std::move(field_size.error()));
     }
     if (!CheckedAdd(*field_size, encoded_size)) {
       return Failure<std::size_t>(ErrorCode::kOutOfRange, "encoded CSV record size exceeds the addressable range");
@@ -84,45 +80,24 @@ Result<std::size_t> EncodedRecordSize(std::span<const std::string_view> fields, 
   return encoded_size;
 }
 
-Result<void> WriteCharacter(std::ostream& output, char character) {
-  try {
-    output.put(character);
-  } catch (const std::ios_base::failure& failure) {
-    return StreamFailure(failure.what());
-  }
-  if (!output) {
-    return StreamFailure();
-  }
-  return {};
+Result<void> WriteCharacter(OutputStream& output, char character) {
+  const std::array<Byte, 1> data{static_cast<Byte>(static_cast<unsigned char>(character))};
+  return output.Write(data);
 }
 
-Result<void> WriteText(std::ostream& output, std::string_view text) {
-  std::size_t offset = 0;
-  constexpr auto kMaximumStreamSize = static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max());
-  try {
-    while (offset < text.size()) {
-      const std::size_t count = std::min(text.size() - offset, kMaximumStreamSize);
-      output.write(text.data() + offset, static_cast<std::streamsize>(count));
-      if (!output) {
-        return StreamFailure();
-      }
-      offset += count;
-    }
-  } catch (const std::ios_base::failure& failure) {
-    return StreamFailure(failure.what());
-  }
-  return {};
+Result<void> WriteText(OutputStream& output, std::string_view text) {
+  return output.Write(std::as_bytes(std::span(text.data(), text.size())));
 }
 
 }  // namespace
 
-CsvWriter::CsvWriter(std::ostream& output, CsvOptions options) : output_(output), options_(options) {
+CsvWriter::CsvWriter(OutputStream& output, CsvOptions options) : output_(output), options_(options) {
 }
 
 Result<void> CsvWriter::WriteRow(std::span<const std::string_view> fields) {
   auto validation = ValidateOptions(options_);
   if (!validation) {
-    return std::unexpected(validation.error());
+    return MakeUnexpected(std::move(validation.error()));
   }
   if (fields.empty()) {
     return Failure<void>(ErrorCode::kInvalidArgument, "CSV rows must contain at least one field");
@@ -134,7 +109,7 @@ Result<void> CsvWriter::WriteRow(std::span<const std::string_view> fields) {
 
   auto encoded_size = EncodedRecordSize(fields, options_);
   if (!encoded_size) {
-    return std::unexpected(encoded_size.error());
+    return MakeUnexpected(std::move(encoded_size.error()));
   }
   if (*encoded_size > options_.max_record_bytes) {
     return Failure<void>(ErrorCode::kInvalidArgument,

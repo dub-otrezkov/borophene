@@ -1,7 +1,7 @@
 #include <cstdint>
-#include <functional>
+#include <exception>
 #include <iostream>
-#include <stdexcept>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -17,8 +17,9 @@
 #include "borophene/data/logical_type.hpp"
 #include "borophene/data/schema.hpp"
 
-static_assert(!std::is_constructible_v<borophene::StringT, std::string&&>);
-static_assert(!std::is_constructible_v<borophene::StringT, const std::string&&>);
+static_assert(sizeof(borophene::StringT) == 16);
+static_assert(std::is_trivially_copyable_v<borophene::StringT>);
+static_assert(!std::is_constructible_v<borophene::StringT, const char*>);
 
 namespace {
 
@@ -32,54 +33,61 @@ void Check(bool condition, std::string_view message) {
   ++failures;
 }
 
-template <typename Exception, typename Function, typename... Arguments>
-void CheckThrows(Function&& function, std::string_view message, Arguments&&... arguments) {
-  try {
-    std::invoke(std::forward<Function>(function), std::forward<Arguments>(arguments)...);
-  } catch (const Exception&) {
-    return;
-  } catch (...) {
-    Check(false, "function threw an unexpected exception type");
-    return;
-  }
-  Check(false, message);
+void TestIntegerAliases() {
+  using namespace borophene;
+
+  Check(
+      (std::is_same_v<i8, std::int8_t> && std::is_same_v<ui8, std::uint8_t> && std::is_same_v<i16, std::int16_t> &&
+       std::is_same_v<ui16, std::uint16_t> && std::is_same_v<i32, std::int32_t> &&
+       std::is_same_v<ui32, std::uint32_t> && std::is_same_v<i64, std::int64_t> && std::is_same_v<ui64, std::uint64_t>),
+      "fixed-width integer aliases map to the standard integer types");
 }
 
-void ConstructStringWithNullData() {
-  [[maybe_unused]] borophene::StringT invalid(nullptr, 1);
-}
+void TestResultHelpers() {
+  using namespace borophene;
 
-void ConstructStringFromNullCString() {
-  [[maybe_unused]] borophene::StringT invalid(nullptr);
-}
-
-void ReadInvalidValidityIndex(const borophene::ValidityMask& mask) {
-  (void)mask.IsValid(3);
-}
-
-void ReadStringValues(const borophene::Result<borophene::ColumnVector>& column) {
-  (void)column->StringValues();
+  Result<i32> result = MakeUnexpected(Error(ErrorCode::kInvalidState, "expected failure"));
+  Check(!result && result.error().Code() == ErrorCode::kInvalidState && result.error().Message() == "expected failure",
+        "MakeUnexpected propagates project errors through Result");
 }
 
 void TestStringT() {
-  using borophene::StringT;
+  using namespace borophene;
 
-  const StringT kEmpty(std::string_view{});
-  const StringT kInlineLimit("abcdefghijkl", 12);
+  auto empty = StringT::Create(std::string_view{});
+  auto inline_limit = StringT::Create("abcdefghijkl", 12);
   const std::string kFirstLong = "abcdefghijklm";
   const std::string kSecondLong = "abcdefghijklm";
-  const StringT kBorrowedFirst(kFirstLong);
-  const StringT kBorrowedSecond(kSecondLong);
+  auto borrowed_first = StringT::Create(kFirstLong);
+  auto borrowed_second = StringT::Create(kSecondLong);
+  auto abc = StringT::Create("abc");
+  auto abd = StringT::Create("abd");
+  auto abcd = StringT::Create("abcd");
+  const std::string kEmbeddedNull("a\0b", 3);
+  auto embedded_null = StringT::Create(std::string_view(kEmbeddedNull));
 
-  Check(kEmpty.Empty() && kEmpty.IsInlined() && kEmpty.GetView().empty(), "empty StringT is inline");
-  Check(kInlineLimit.IsInlined() && kInlineLimit.GetString() == "abcdefghijkl", "12 bytes remain inline");
-  Check(!kBorrowedFirst.IsInlined() && kBorrowedFirst.GetData() == kFirstLong.data(), "13 bytes are borrowed");
-  Check(kBorrowedFirst == kBorrowedSecond, "distinct long buffers compare by content");
-  Check(StringT("abc") < StringT("abd"), "StringT lexicographic ordering");
-  Check(StringT("abc") < StringT("abcd"), "StringT length breaks equal-prefix ties");
-  Check(StringT("abcd").GetPrefixIntegerComparable() == 0x61626364U, "prefix integer is byte-comparable");
-  CheckThrows<std::invalid_argument>(ConstructStringWithNullData, "null StringT data is rejected");
-  CheckThrows<std::invalid_argument>(ConstructStringFromNullCString, "null C strings are rejected");
+  Check(empty && empty->Empty() && empty->IsInlined() && empty->GetView().empty(), "empty StringT is inline");
+  Check(inline_limit && inline_limit->IsInlined() && inline_limit->GetString() == "abcdefghijkl",
+        "12 bytes remain inline");
+  Check(borrowed_first && !borrowed_first->IsInlined() && borrowed_first->GetData() == kFirstLong.data(),
+        "13 bytes are borrowed");
+  Check(borrowed_first && borrowed_second && *borrowed_first == *borrowed_second,
+        "distinct long buffers compare by content");
+  Check(abc && abd && *abc < *abd, "StringT lexicographic ordering uses byte comparison");
+  Check(abc && abcd && *abc < *abcd, "StringT length breaks equal-prefix ties");
+  Check(abcd && abcd->GetPrefixIntegerComparable() == 0x61626364U, "prefix integer is byte-comparable");
+  Check(embedded_null && embedded_null->GetString() == kEmbeddedNull,
+        "GetString copies the complete byte sequence after resizing");
+
+  auto null_data = StringT::Create(nullptr, 1);
+  auto null_c_string = StringT::Create(static_cast<const char*>(nullptr));
+  auto oversized = StringT::Create("x", static_cast<Index>(std::numeric_limits<ui32>::max()) + 1U);
+  Check(!null_data && null_data.error().Code() == ErrorCode::kInvalidArgument,
+        "null StringT data reports invalid argument");
+  Check(!null_c_string && null_c_string.error().Code() == ErrorCode::kInvalidArgument,
+        "null C strings report invalid argument");
+  Check(!oversized && oversized.error().Code() == ErrorCode::kOutOfRange,
+        "oversized StringT values report out of range");
 }
 
 void TestSchema() {
@@ -98,6 +106,11 @@ void TestSchema() {
   auto schema = Schema::Create({{.name = "id", .type = LogicalType::kInt32, .nullable = false},
                                 {.name = "name", .type = LogicalType::kString, .nullable = true}});
   Check(schema.has_value() && schema->Size() == 2, "valid schemas are created");
+  auto first_field = schema->FieldAt(0);
+  auto missing_field = schema->FieldAt(schema->Size());
+  Check(first_field && first_field->get().name == "id", "schema fields are accessed by status-returning index");
+  Check(!missing_field && missing_field.error().Code() == ErrorCode::kOutOfRange,
+        "schema field bounds failures report out of range");
   Check(schema->Find("name") == Result<Index>(1), "schema fields can be found by name");
   Check(!schema->Find("missing") && schema->Find("missing").error().Code() == ErrorCode::kOutOfRange,
         "missing schema fields report out of range");
@@ -108,24 +121,41 @@ void TestSchema() {
 void TestColumnsAndChunks() {
   using namespace borophene;
 
-  ValidityMask mask(3);
-  Check(mask.NullCount() == 0, "validity masks start fully valid");
-  mask.SetValid(1, false);
-  Check(mask.IsValid(0) && !mask.IsValid(1) && mask.NullCount() == 1, "validity bits can be cleared");
-  CheckThrows<std::out_of_range>(ReadInvalidValidityIndex, "validity reads are bounds checked", mask);
+  auto mask = ValidityMask::Create(3);
+  Check(mask && mask->NullCount() == 0, "validity masks start fully valid");
+  auto cleared = mask->SetValid(1, false);
+  auto first_valid = mask->IsValid(0);
+  auto second_valid = mask->IsValid(1);
+  Check(cleared && first_valid && *first_valid && second_valid && !*second_valid && mask->NullCount() == 1,
+        "validity bits can be cleared");
+  auto invalid_read = mask->IsValid(3);
+  auto invalid_write = mask->SetValid(3, false);
+  Check(!invalid_read && invalid_read.error().Code() == ErrorCode::kOutOfRange,
+        "validity reads report out-of-range status");
+  Check(!invalid_write && invalid_write.error().Code() == ErrorCode::kOutOfRange,
+        "validity writes report out-of-range status");
 
-  Check(!ColumnVector::CreateInt32({1, 2}, ValidityMask(1)), "column and validity sizes must match");
-  auto ids = ColumnVector::CreateInt32({1, 2, 3}, mask);
+  auto short_mask = ValidityMask::Create(1);
+  Check(!ColumnVector::CreateInt32({1, 2}, std::move(*short_mask)), "column and validity sizes must match");
+  auto ids = ColumnVector::CreateInt32({1, 2, 3}, std::move(*mask));
   auto names = ColumnVector::CreateString({"a", "b", "c"});
-  Check(ids && ids->Validity().NullCount() == 1 && ids->Int32Values()[2] == 3, "INT32 columns own values");
-  Check(names && names->StringValues()[1] == "b", "STRING columns own values");
-  CheckThrows<std::logic_error>(ReadStringValues, "wrong typed access is rejected", ids);
+  auto id_values = ids->Int32Values();
+  auto name_values = names->StringValues();
+  Check(ids && ids->Validity().NullCount() == 1 && id_values && id_values->get()[2] == 3, "INT32 columns own values");
+  Check(names && name_values && name_values->get()[1] == "b", "STRING columns own values");
+  auto wrong_values = ids->StringValues();
+  Check(!wrong_values && wrong_values.error().Code() == ErrorCode::kInvalidState,
+        "wrong typed access reports invalid state");
 
   auto schema = Schema::Create({{.name = "id", .type = LogicalType::kInt32, .nullable = true},
                                 {.name = "name", .type = LogicalType::kString, .nullable = true}});
   auto chunk = DataChunk::Create(*schema, {std::move(*ids), std::move(*names)});
-  Check(chunk && chunk->RowCount() == 3 && chunk->Column(0).Type() == LogicalType::kInt32,
+  auto first_column = chunk->Column(0);
+  auto missing_column = chunk->Column(2);
+  Check(chunk && chunk->RowCount() == 3 && first_column && first_column->get().Type() == LogicalType::kInt32,
         "valid chunks preserve their columns");
+  Check(!missing_column && missing_column.error().Code() == ErrorCode::kOutOfRange,
+        "data-chunk column bounds failures report out of range");
 
   auto short_ids = ColumnVector::CreateInt32({1});
   auto long_names = ColumnVector::CreateString({"a", "b"});
@@ -137,9 +167,9 @@ void TestColumnsAndChunks() {
         "chunks reject schema type mismatches");
 
   auto required_schema = Schema::Create({{.name = "id", .type = LogicalType::kInt32, .nullable = false}});
-  ValidityMask null_mask(1);
-  null_mask.SetValid(0, false);
-  auto null_id = ColumnVector::CreateInt32({1}, std::move(null_mask));
+  auto null_mask = ValidityMask::Create(1);
+  Check(null_mask->SetValid(0, false).has_value(), "nullable test mask is updated");
+  auto null_id = ColumnVector::CreateInt32({1}, std::move(*null_mask));
   Check(!DataChunk::Create(*required_schema, {std::move(*null_id)}), "chunks reject nulls in non-nullable fields");
 }
 
@@ -147,6 +177,8 @@ void TestColumnsAndChunks() {
 
 int main() {
   try {
+    TestIntegerAliases();
+    TestResultHelpers();
     TestStringT();
     TestSchema();
     TestColumnsAndChunks();

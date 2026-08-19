@@ -32,8 +32,8 @@ The engine is split into dependency-directed modules:
 
 - `borophene::common`: error/result primitives and low-level value types.
 - `borophene::data`: logical types, schemas, owned column vectors, and data chunks.
-- `borophene::io`: streaming CSV and local file abstractions.
-- `borophene::storage`: the Borophene v1 columnar reader and writer.
+- `borophene::io`: injected byte streams, reusable memory streams, streaming CSV, and local file adapters.
+- `borophene::storage`: the Borophene v1 column codec plus columnar reader and writer orchestration.
 - `borophene::execution`: source/sink contracts and pull pipeline orchestration.
 
 See [Architecture](docs/architecture.md) and [Columnar format v1](docs/columnar-format-v1.md) for the contracts and

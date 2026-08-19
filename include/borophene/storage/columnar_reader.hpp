@@ -1,6 +1,5 @@
 #pragma once
 
-#include <filesystem>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -10,14 +9,15 @@
 #include "borophene/data/schema.hpp"
 #include "borophene/execution/chunk_source.hpp"
 #include "borophene/io/file.hpp"
+#include "borophene/storage/column_codec.hpp"
 #include "borophene/storage/columnar_format.hpp"
 
 namespace borophene::storage {
 
 class ColumnarReader final : public execution::ChunkSource {
  public:
-  static Result<ColumnarReader> Open(std::unique_ptr<io::RandomAccessFile> file);
-  static Result<ColumnarReader> Open(const std::filesystem::path& path);
+  static Result<ColumnarReader> Open(std::unique_ptr<io::RandomAccessFile> file,
+                                     std::shared_ptr<const ColumnFactory> column_factory = CreateV1ColumnFactory());
 
   ColumnarReader(const ColumnarReader&) = delete;
   ColumnarReader& operator=(const ColumnarReader&) = delete;
@@ -34,13 +34,14 @@ class ColumnarReader final : public execution::ChunkSource {
 
  private:
   ColumnarReader(std::unique_ptr<io::RandomAccessFile> file, Schema schema, std::vector<RowGroupMetadata> row_groups,
-                 Index total_rows) noexcept;
+                 Index total_rows, std::shared_ptr<const ColumnFactory> column_factory) noexcept;
 
   std::unique_ptr<io::RandomAccessFile> file_;
   Schema schema_;
   std::vector<RowGroupMetadata> row_groups_;
   Index total_rows_;
   Index next_row_group_ = 0;
+  std::shared_ptr<const ColumnFactory> column_factory_;
 };
 
 }  // namespace borophene::storage

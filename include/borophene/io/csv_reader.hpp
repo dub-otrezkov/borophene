@@ -1,13 +1,14 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
-#include <istream>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "borophene/common/result.hpp"
 #include "borophene/common/types.hpp"
+#include "borophene/io/file.hpp"
 
 namespace borophene::io {
 
@@ -20,7 +21,7 @@ struct CsvOptions {
 
 class CsvReader {
  public:
-  explicit CsvReader(std::istream& input, CsvOptions options = {});
+  explicit CsvReader(InputStream& input, CsvOptions options = {});
 
   CsvReader(const CsvReader&) = delete;
   CsvReader& operator=(const CsvReader&) = delete;
@@ -33,9 +34,14 @@ class CsvReader {
   }
 
  private:
-  std::istream& input_;
+  static constexpr std::size_t kInputBufferBytes = std::size_t{64} * 1024U;
+
+  InputStream& input_;
   CsvOptions options_;
   Index record_number_ = 0;
+  std::array<Byte, kInputBufferBytes> input_buffer_{};
+  std::size_t input_position_ = 0;
+  std::size_t input_size_ = 0;
 };
 
 }  // namespace borophene::io

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <ostream>
 #include <span>
 #include <string_view>
 
@@ -11,7 +10,7 @@ namespace borophene::io {
 
 class CsvWriter {
  public:
-  explicit CsvWriter(std::ostream& output, CsvOptions options = {});
+  explicit CsvWriter(OutputStream& output, CsvOptions options = {});
 
   CsvWriter(const CsvWriter&) = delete;
   CsvWriter& operator=(const CsvWriter&) = delete;
@@ -21,7 +20,7 @@ class CsvWriter {
   Result<void> WriteRow(std::span<const std::string_view> fields);
 
  private:
-  std::ostream& output_;
+  OutputStream& output_;
   CsvOptions options_;
 };
 

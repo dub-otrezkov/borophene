@@ -1,7 +1,9 @@
 #include <iostream>
 #include <string_view>
+#include <utility>
 
 #include "borophene/common/error.hpp"
+#include "borophene/io/file.hpp"
 #include "borophene/storage/columnar_reader.hpp"
 
 namespace {
@@ -32,7 +34,12 @@ int PrintError(const borophene::Error& error) {
 }
 
 int Inspect(std::string_view path) {
-  auto reader = borophene::storage::ColumnarReader::Open(path);
+  auto input = borophene::io::OpenLocalInput(path);
+  if (!input) {
+    return PrintError(input.error());
+  }
+
+  auto reader = borophene::storage::ColumnarReader::Open(std::move(*input));
   if (!reader) {
     return PrintError(reader.error());
   }

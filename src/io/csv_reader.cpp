@@ -1,8 +1,6 @@
 #include "borophene/io/csv_reader.hpp"
 
-#include <ios>
-#include <istream>
-#include <limits>
+#include <array>
 #include <optional>
 #include <string>
 #include <utility>
@@ -11,14 +9,14 @@
 namespace borophene::io {
 namespace {
 
-enum class CsvState : std::uint8_t {
+enum class CsvState : ui8 {
   kFieldStart,
   kUnquoted,
   kQuoted,
   kAfterQuote
 };
 
-enum class CsvParseAction : std::uint8_t {
+enum class CsvParseAction : ui8 {
   kContinue,
   kFinishRecord
 };
@@ -26,6 +24,7 @@ enum class CsvParseAction : std::uint8_t {
 using CsvRow = std::vector<std::string>;
 using CsvReadResult = Result<std::optional<CsvRow>>;
 using CsvStepResult = Result<CsvParseAction>;
+using CsvByteResult = Result<std::optional<Byte>>;
 
 Result<void> ValidateOptions(const CsvOptions& options) {
   if (options.delimiter == options.quote) {
@@ -47,32 +46,70 @@ std::string CsvContext(Index record, std::size_t field) {
   return "CSV record " + std::to_string(record) + ", field " + std::to_string(field) + ": ";
 }
 
+// Amortizes virtual backend reads while retaining unconsumed bytes between CSV records.
+class BufferedInput {
+ public:
+  BufferedInput(InputStream& input, std::span<Byte> buffer, std::size_t& position, std::size_t& size)
+      : input_(input), buffer_(buffer), position_(position), size_(size) {
+  }
+
+  CsvByteResult ReadByte() {
+    if (position_ == size_) {
+      auto read = input_.Read(buffer_);
+      if (!read) {
+        return MakeUnexpected(std::move(read.error()));
+      }
+      if (*read > buffer_.size()) {
+        return Failure<std::optional<Byte>>(ErrorCode::kIo, "input stream returned more bytes than requested");
+      }
+      position_ = 0;
+      size_ = *read;
+    }
+    if (position_ == size_) {
+      return std::optional<Byte>{};
+    }
+
+    const Byte value = buffer_[position_];
+    ++position_;
+    return std::optional<Byte>(value);
+  }
+
+  void PutBack() noexcept {
+    --position_;
+  }
+
+ private:
+  InputStream& input_;
+  std::span<Byte> buffer_;
+  std::size_t& position_;
+  std::size_t& size_;
+};
+
 class CsvRecordParser {
  public:
-  CsvRecordParser(std::istream& input, const CsvOptions& options, Index& record_number)
+  CsvRecordParser(BufferedInput& input, const CsvOptions& options, Index& record_number)
       : input_(input), options_(options), record_number_(record_number), current_record_(record_number + 1) {
   }
 
   CsvReadResult Parse() {
-    try {
-      while (true) {
-        const int value = input_.get();
-        if (value == std::char_traits<char>::eof()) {
-          return HandleEndOfInput();
-        }
-
-        saw_input_ = true;
-        const char character = std::char_traits<char>::to_char_type(value);
-        auto step = HandleCharacter(character);
-        if (!step) {
-          return std::unexpected(step.error());
-        }
-        if (*step == CsvParseAction::kFinishRecord) {
-          return FinishRecord();
-        }
+    while (true) {
+      auto value = ReadByte();
+      if (!value) {
+        return MakeUnexpected(std::move(value.error()));
       }
-    } catch (const std::ios_base::failure& failure) {
-      return HandleInputFailure(failure);
+      if (!*value) {
+        return HandleEndOfInput();
+      }
+
+      saw_input_ = true;
+      const char character = static_cast<char>(std::to_integer<unsigned char>(**value));
+      auto step = HandleCharacter(character);
+      if (!step) {
+        return MakeUnexpected(std::move(step.error()));
+      }
+      if (*step == CsvParseAction::kFinishRecord) {
+        return FinishRecord();
+      }
     }
   }
 
@@ -81,17 +118,16 @@ class CsvRecordParser {
     return {ErrorCode::kMalformedCsv, CurrentContext() + std::move(message)};
   }
 
-  CsvReadResult StreamFailure(const char* detail = nullptr) const {
-    std::string message = CurrentContext() + "input stream failure";
-    if (detail != nullptr) {
-      message += ": ";
-      message += detail;
-    }
-    return std::unexpected(Error(ErrorCode::kIo, std::move(message)));
-  }
-
   std::string CurrentContext() const {
     return CsvContext(current_record_, fields_.size() + 1);
+  }
+
+  CsvByteResult ReadByte() {
+    auto value = input_.ReadByte();
+    if (!value) {
+      return Failure<std::optional<Byte>>(value.error().Code(), CurrentContext() + value.error().Message());
+    }
+    return value;
   }
 
   Result<void> AccountByte() {
@@ -116,32 +152,22 @@ class CsvRecordParser {
   CsvReadResult FinishRecord() {
     auto appended = AppendField();
     if (!appended) {
-      return std::unexpected(appended.error());
+      return MakeUnexpected(std::move(appended.error()));
     }
     ++record_number_;
     return std::optional<CsvRow>(std::move(fields_));
   }
 
   Result<void> ConsumeLineFeed() {
-    try {
-      const int next = input_.peek();
-      if (next == std::char_traits<char>::eof()) {
-        if (input_.bad() || (!input_.eof() && input_.fail())) {
-          return Failure<void>(ErrorCode::kIo, CurrentContext() + "input stream failure");
-        }
-        return {};
-      }
-      if (std::char_traits<char>::to_char_type(next) == '\n') {
-        static_cast<void>(input_.get());
-        if (!input_) {
-          return Failure<void>(ErrorCode::kIo, CurrentContext() + "input stream failure");
-        }
-      }
-    } catch (const std::ios_base::failure& failure) {
-      if (input_.eof() && !input_.bad()) {
-        return {};
-      }
-      return Failure<void>(ErrorCode::kIo, CurrentContext() + "input stream failure: " + failure.what());
+    auto next = ReadByte();
+    if (!next) {
+      return MakeUnexpected(std::move(next.error()));
+    }
+    if (!*next) {
+      return {};
+    }
+    if (static_cast<char>(std::to_integer<unsigned char>(**next)) != '\n') {
+      input_.PutBack();
     }
     return {};
   }
@@ -164,16 +190,16 @@ class CsvRecordParser {
     if (character == options_.delimiter) {
       auto accounted = AccountByte();
       if (!accounted) {
-        return std::unexpected(accounted.error());
+        return MakeUnexpected(std::move(accounted.error()));
       }
       auto appended = AppendField();
       if (!appended) {
-        return std::unexpected(appended.error());
+        return MakeUnexpected(std::move(appended.error()));
       }
     } else if (character == options_.quote) {
       auto accounted = AccountByte();
       if (!accounted) {
-        return std::unexpected(accounted.error());
+        return MakeUnexpected(std::move(accounted.error()));
       }
       state_ = CsvState::kQuoted;
     } else if (character == '\n') {
@@ -181,13 +207,13 @@ class CsvRecordParser {
     } else if (character == '\r') {
       auto consumed = ConsumeLineFeed();
       if (!consumed) {
-        return std::unexpected(consumed.error());
+        return MakeUnexpected(std::move(consumed.error()));
       }
       return CsvParseAction::kFinishRecord;
     } else {
       auto accounted = AccountByte();
       if (!accounted) {
-        return std::unexpected(accounted.error());
+        return MakeUnexpected(std::move(accounted.error()));
       }
       field_.push_back(character);
       state_ = CsvState::kUnquoted;
@@ -199,27 +225,27 @@ class CsvRecordParser {
     if (character == options_.delimiter) {
       auto accounted = AccountByte();
       if (!accounted) {
-        return std::unexpected(accounted.error());
+        return MakeUnexpected(std::move(accounted.error()));
       }
       auto appended = AppendField();
       if (!appended) {
-        return std::unexpected(appended.error());
+        return MakeUnexpected(std::move(appended.error()));
       }
       state_ = CsvState::kFieldStart;
     } else if (character == options_.quote) {
-      return std::unexpected(MalformedError("quote inside an unquoted field"));
+      return MakeUnexpected(MalformedError("quote inside an unquoted field"));
     } else if (character == '\n') {
       return CsvParseAction::kFinishRecord;
     } else if (character == '\r') {
       auto consumed = ConsumeLineFeed();
       if (!consumed) {
-        return std::unexpected(consumed.error());
+        return MakeUnexpected(std::move(consumed.error()));
       }
       return CsvParseAction::kFinishRecord;
     } else {
       auto accounted = AccountByte();
       if (!accounted) {
-        return std::unexpected(accounted.error());
+        return MakeUnexpected(std::move(accounted.error()));
       }
       field_.push_back(character);
     }
@@ -229,7 +255,7 @@ class CsvRecordParser {
   CsvStepResult HandleQuoted(char character) {
     auto accounted = AccountByte();
     if (!accounted) {
-      return std::unexpected(accounted.error());
+      return MakeUnexpected(std::move(accounted.error()));
     }
     if (character == options_.quote) {
       state_ = CsvState::kAfterQuote;
@@ -243,18 +269,18 @@ class CsvRecordParser {
     if (character == options_.quote) {
       auto accounted = AccountByte();
       if (!accounted) {
-        return std::unexpected(accounted.error());
+        return MakeUnexpected(std::move(accounted.error()));
       }
       field_.push_back(character);
       state_ = CsvState::kQuoted;
     } else if (character == options_.delimiter) {
       auto accounted = AccountByte();
       if (!accounted) {
-        return std::unexpected(accounted.error());
+        return MakeUnexpected(std::move(accounted.error()));
       }
       auto appended = AppendField();
       if (!appended) {
-        return std::unexpected(appended.error());
+        return MakeUnexpected(std::move(appended.error()));
       }
       state_ = CsvState::kFieldStart;
     } else if (character == '\n') {
@@ -262,21 +288,18 @@ class CsvRecordParser {
     } else if (character == '\r') {
       auto consumed = ConsumeLineFeed();
       if (!consumed) {
-        return std::unexpected(consumed.error());
+        return MakeUnexpected(std::move(consumed.error()));
       }
       return CsvParseAction::kFinishRecord;
     } else {
-      return std::unexpected(MalformedError("unexpected character after a closing quote"));
+      return MakeUnexpected(MalformedError("unexpected character after a closing quote"));
     }
     return CsvParseAction::kContinue;
   }
 
   CsvReadResult HandleEndOfInput() {
-    if (input_.bad() || (!input_.eof() && input_.fail())) {
-      return StreamFailure();
-    }
     if (state_ == CsvState::kQuoted) {
-      return std::unexpected(MalformedError("unclosed quoted field"));
+      return MakeUnexpected(MalformedError("unclosed quoted field"));
     }
     if (!saw_input_) {
       return std::optional<CsvRow>{};
@@ -284,20 +307,7 @@ class CsvRecordParser {
     return FinishRecord();
   }
 
-  CsvReadResult HandleInputFailure(const std::ios_base::failure& failure) {
-    if (input_.eof() && !input_.bad()) {
-      if (state_ == CsvState::kQuoted) {
-        return std::unexpected(MalformedError("unclosed quoted field"));
-      }
-      if (!saw_input_) {
-        return std::optional<CsvRow>{};
-      }
-      return FinishRecord();
-    }
-    return StreamFailure(failure.what());
-  }
-
-  std::istream& input_;
+  BufferedInput& input_;
   const CsvOptions& options_;
   Index& record_number_;
   Index current_record_;
@@ -305,21 +315,23 @@ class CsvRecordParser {
   std::string field_;
   CsvState state_ = CsvState::kFieldStart;
   std::size_t record_bytes_ = 0;
+  // Distinguishes clean EOF from a final record without a line ending.
   bool saw_input_ = false;
 };
 
 }  // namespace
 
-CsvReader::CsvReader(std::istream& input, CsvOptions options) : input_(input), options_(options) {
+CsvReader::CsvReader(InputStream& input, CsvOptions options) : input_(input), options_(options) {
 }
 
 Result<std::optional<std::vector<std::string>>> CsvReader::Next() {
   auto validation = ValidateOptions(options_);
   if (!validation) {
-    return std::unexpected(validation.error());
+    return MakeUnexpected(std::move(validation.error()));
   }
 
-  CsvRecordParser parser(input_, options_, record_number_);
+  BufferedInput input(input_, input_buffer_, input_position_, input_size_);
+  CsvRecordParser parser(input, options_, record_number_);
   return parser.Parse();
 }
 

@@ -1,12 +1,13 @@
 #pragma once
 
-#include <cstdint>
 #include <string>
 #include <string_view>
 
+#include "borophene/common/types.hpp"
+
 namespace borophene {
 
-enum class ErrorCode : std::uint8_t {
+enum class ErrorCode : ui8 {
   kInvalidArgument,
   kInvalidState,
   kIo,
