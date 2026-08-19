@@ -72,6 +72,10 @@ void TestStringT() {
   Check(long_first && !long_first->IsInlined() && long_first->GetData() == kFirstLong.data(),
         "13 bytes use pointer storage");
   Check(long_first && long_second && *long_first == *long_second, "distinct long buffers compare by content");
+  if (long_first) {
+    const StringT same_pointer = *long_first;
+    Check(*long_first == same_pointer, "equal pointer and length take the equality fast path");
+  }
   Check(abc && abd && *abc < *abd, "StringT lexicographic ordering uses byte comparison");
   Check(abc && abcd && *abc < *abcd, "StringT length breaks equal-prefix ties");
   Check(abcd && abcd->GetPrefixIntegerComparable() == 0x61626364U, "prefix integer is byte-comparable");

@@ -16,7 +16,6 @@
 #include <array>
 #include <cstring>
 #include <limits>
-#include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -93,7 +92,13 @@ class StringT {
   }
 
   bool operator==(const StringT& other) const noexcept {
-    return GetSize() == other.GetSize() && CompareBytes(other, GetSize()) == 0;
+    if (GetSize() != other.GetSize()) {
+      return false;
+    }
+    if (GetData() == other.GetData()) {
+      return true;
+    }
+    return CompareBytes(other, GetSize()) == 0;
   }
 
   bool operator!=(const StringT& other) const noexcept {
@@ -135,25 +140,14 @@ class StringT {
     Pointer pointer_;
   } storage_{};
 
+  explicit StringT(Pointer pointer) noexcept : storage_{.pointer_ = pointer} {
+  }
+
   int CompareBytes(const StringT& other, Index length) const noexcept {
     if (length == 0) {
       return 0;
     }
     return std::memcmp(GetData(), other.GetData(), length);
-  }
-
-  void Initialize(const char* data, Index length) noexcept {
-    const auto kStoredLength = static_cast<ui32>(length);
-    if (length <= kInlineLength) {
-      storage_.inlined_ = Inlined{.length_ = kStoredLength, .data_ = {}};
-      if (length != 0) {
-        std::memcpy(storage_.inlined_.data_.data(), data, length);
-      }
-      return;
-    }
-
-    std::construct_at(&storage_.pointer_, Pointer{.length_ = kStoredLength, .prefix_ = {}, .data_ = data});
-    std::memcpy(storage_.pointer_.prefix_.data(), data, kPrefixLength);
   }
 };
 
@@ -165,9 +159,19 @@ inline Result<StringT> StringT::Create(const char* data, Index length) {
     return Failure<StringT>(ErrorCode::kOutOfRange, "StringT length exceeds its 32-bit representation");
   }
 
-  StringT result;
-  result.Initialize(data, length);
-  return result;
+  const auto kStoredLength = static_cast<ui32>(length);
+  if (length <= kInlineLength) {
+    StringT result;
+    result.storage_.inlined_ = Inlined{.length_ = kStoredLength, .data_ = {}};
+    if (length != 0) {
+      std::memcpy(result.storage_.inlined_.data_.data(), data, length);
+    }
+    return result;
+  }
+
+  Pointer pointer{.length_ = kStoredLength, .prefix_ = {}, .data_ = data};
+  std::memcpy(pointer.prefix_.data(), data, kPrefixLength);
+  return StringT(pointer);
 }
 
 inline Result<StringT> StringT::Create(const char* data) {
