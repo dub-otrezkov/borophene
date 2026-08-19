@@ -1,0 +1,5 @@
+add_executable(borophene_cli main.cpp)
+target_link_libraries(borophene_cli PRIVATE borophene::borophene)
+target_compile_definitions(borophene_cli PRIVATE BOROPHENE_VERSION="${PROJECT_VERSION}")
+set_target_properties(borophene_cli PROPERTIES OUTPUT_NAME borophene)
+borophene_configure_target(borophene_cli)
