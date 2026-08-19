@@ -52,7 +52,7 @@ class StringT {
   }
 
   const char* GetData() const noexcept {
-    return IsInlined() ? storage_.inlined_.data_.data() : storage_.borrowed_.data_;
+    return IsInlined() ? storage_.inlined_.data_.data() : storage_.pointer_.data_;
   }
 
   std::string GetString() const {
@@ -124,7 +124,7 @@ class StringT {
     std::array<char, kInlineLength> data_;
   };
 
-  struct Borrowed {
+  struct Pointer {
     ui32 length_;
     std::array<char, kPrefixLength> prefix_;
     const char* data_;
@@ -132,7 +132,7 @@ class StringT {
 
   union Storage {
     Inlined inlined_;
-    Borrowed borrowed_;
+    Pointer pointer_;
   } storage_{};
 
   int CompareBytes(const StringT& other, Index length) const noexcept {
@@ -152,8 +152,8 @@ class StringT {
       return;
     }
 
-    std::construct_at(&storage_.borrowed_, Borrowed{.length_ = kStoredLength, .prefix_ = {}, .data_ = data});
-    std::memcpy(storage_.borrowed_.prefix_.data(), data, kPrefixLength);
+    std::construct_at(&storage_.pointer_, Pointer{.length_ = kStoredLength, .prefix_ = {}, .data_ = data});
+    std::memcpy(storage_.pointer_.prefix_.data(), data, kPrefixLength);
   }
 };
 

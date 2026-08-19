@@ -58,8 +58,8 @@ void TestStringT() {
   auto inline_limit = StringT::Create("abcdefghijkl", 12);
   const std::string kFirstLong = "abcdefghijklm";
   const std::string kSecondLong = "abcdefghijklm";
-  auto borrowed_first = StringT::Create(kFirstLong);
-  auto borrowed_second = StringT::Create(kSecondLong);
+  auto long_first = StringT::Create(kFirstLong);
+  auto long_second = StringT::Create(kSecondLong);
   auto abc = StringT::Create("abc");
   auto abd = StringT::Create("abd");
   auto abcd = StringT::Create("abcd");
@@ -69,10 +69,9 @@ void TestStringT() {
   Check(empty && empty->Empty() && empty->IsInlined() && empty->GetView().empty(), "empty StringT is inline");
   Check(inline_limit && inline_limit->IsInlined() && inline_limit->GetString() == "abcdefghijkl",
         "12 bytes remain inline");
-  Check(borrowed_first && !borrowed_first->IsInlined() && borrowed_first->GetData() == kFirstLong.data(),
-        "13 bytes are borrowed");
-  Check(borrowed_first && borrowed_second && *borrowed_first == *borrowed_second,
-        "distinct long buffers compare by content");
+  Check(long_first && !long_first->IsInlined() && long_first->GetData() == kFirstLong.data(),
+        "13 bytes use pointer storage");
+  Check(long_first && long_second && *long_first == *long_second, "distinct long buffers compare by content");
   Check(abc && abd && *abc < *abd, "StringT lexicographic ordering uses byte comparison");
   Check(abc && abcd && *abc < *abcd, "StringT length breaks equal-prefix ties");
   Check(abcd && abcd->GetPrefixIntegerComparable() == 0x61626364U, "prefix integer is byte-comparable");
